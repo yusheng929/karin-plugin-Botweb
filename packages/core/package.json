@@ -1,0 +1,56 @@
+{
+  "name": "karin-plugin-BotWeb",
+  "version": "1.0.0",
+  "author": "瑜笙",
+  "type": "module",
+  "description": "基于Karin编写的Bot面板",
+  "homepage": "https://github.com/yusheng929/karin-plugin-BotWeb",
+  "bugs": {
+    "url": "https://github.com/yusheng929/karin-plugin-BotWeb/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yusheng929/karin-plugin-BotWeb.git"
+  },
+  "scripts": {
+    "app": "node lib/app.js",
+    "build": "tsc --noEmit && tsdown",
+    "dev": "cross-env EBV_FILE=\"development.env\" node --import tsx src/app.ts",
+    "pub": "npm publish --access public"
+  },
+  "main": "lib/index.js",
+  "devDependencies": {
+    "@karinjs/adapter-qqbot": "^2.2.1",
+    "@types/express": "5.0.6",
+    "cross-env": "10.1.0",
+    "node-karin": "1.15.5",
+    "sandbox-template": "workspace:*"
+  },
+  "karin": {
+    "main": "src/index.ts",
+    "web": "lib/web.config.js",
+    "ts-web": "src/web.config.ts",
+    "apps": [
+      "lib/apps"
+    ],
+    "ts-apps": [
+      "src/apps"
+    ],
+    "static": [
+      "resources"
+    ],
+    "files": [
+      "config",
+      "temp"
+    ]
+  },
+  "files": [
+    "lib/",
+    "resources/",
+    "!lib/app.js",
+    "LICENSE",
+    "package.json",
+    "README.md",
+    "CHANGELOG.md"
+  ]
+}

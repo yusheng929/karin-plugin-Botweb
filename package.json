@@ -1,0 +1,26 @@
+{
+  "name": "@ys7zts/plugin-neko",
+  "version": "1.0.0",
+  "description": "",
+  "keywords": [],
+  "license": "MIT",
+  "author": "ys7zTS",
+  "type": "module",
+  "main": "",
+  "scripts": {
+    "dev": "pnpm --filter karin-plugin-BotWeb dev",
+    "app": "pnpm --filter karin-plugin-BotWeb app",
+    "build": "pnpm -r run build",
+    "build:web": "pnpm -F sandbox-template build",
+    "dev:web": "pnpm -F sandbox-template dev"
+  },
+  "devDependencies": {
+    "@types/lodash": "^4.17.24",
+    "@types/node": "24.12.2",
+    "tsc-alias": "1.8.13",
+    "tsdown": "^0.21.10",
+    "tsx": "^4.19.4",
+    "typescript": "^6.0.3"
+  },
+  "packageManager": "pnpm@9.15.9"
+}
