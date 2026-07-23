@@ -9,6 +9,7 @@ import {
   ChatMessage,
   WsPush
 } from '../core/types'
+import { authHeaders, getAccessToken, getUserId, logout, refresh } from './auth'
 
 /** 后端挂载路径，由 render(basePath) 注入到 window.BOTWEB_BASE */
 export const BASE: string = (window as any).BOTWEB_BASE || '/botweb'
@@ -18,11 +19,17 @@ export const BASE: string = (window as any).BOTWEB_BASE || '/botweb'
  * 后端暂无统一抽象）。聊天窗口只展示页面打开后累积的实时消息与自己发送的消息。
  */
 
-async function request<T> (path: string, init?: RequestInit): Promise<T> {
+async function request<T> (path: string, init?: RequestInit, retried = false): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     ...init
   })
+  // accessToken 过期/失效（karin：401 未授权，419 令牌过期）：先用 refreshToken 换新并重放一次，仍失败则登出
+  if (res.status === 401 || res.status === 419) {
+    if (!retried && await refresh()) return request(path, init, true)
+    logout()
+    throw new Error('登录信息已过期，请重新登录')
+  }
   const result = await res.json() as ApiResult<T>
   if (result.code !== 0) {
     throw new Error(result.message || `请求失败 (code: ${result.code})`)
@@ -67,6 +74,12 @@ export const pokeGroupMember = (selfId: string, groupId: string, targetId: strin
     body: JSON.stringify({ targetId })
   })
 
+/** 戳一戳好友 */
+export const pokeFriend = (selfId: string, userId: string) =>
+  request<boolean>(`/api/bots/${encodeURIComponent(selfId)}/friends/${encodeURIComponent(userId)}/poke`, {
+    method: 'POST'
+  })
+
 /** 踢出群成员（需 bot 为管理员/群主） */
 export const kickGroupMember = (selfId: string, groupId: string, targetId: string) =>
   request<null>(`/api/bots/${encodeURIComponent(selfId)}/groups/${encodeURIComponent(groupId)}/kick`, {
@@ -99,7 +112,13 @@ export class WsClient {
 
   private open () {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const url = `${protocol}//${window.location.host}${BASE}/ws`
+    // 浏览器 WebSocket 无法自定义 header，凭据走 query（后端校验 karin JWT 或明文 key）
+    const params = new URLSearchParams()
+    const token = getAccessToken()
+    const userId = getUserId()
+    if (token) params.set('token', token)
+    if (userId) params.set('user_id', userId)
+    const url = `${protocol}//${window.location.host}${BASE}/ws?${params}`
     this.ws = new WebSocket(url)
 
     this.ws.onopen = () => {
@@ -121,7 +140,13 @@ export class WsClient {
       }
     }
 
-    this.ws.onclose = () => {
+    this.ws.onclose = (event) => {
+      // 4401：后端鉴权拒绝，不再重连，登出回登录页
+      if (event.code === 4401) {
+        this.started = false
+        logout()
+        return
+      }
       console.log('[WS] Disconnected, retrying in 3s...')
       this.scheduleReconnect()
     }

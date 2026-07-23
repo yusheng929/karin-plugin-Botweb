@@ -6,6 +6,30 @@ import { getAvatarUrl, getMessageSummary, toMillis, formatSize, resolveMediaSrc,
 
 const cn = (...classes: (string | boolean | undefined)[]) => classes.filter(Boolean).join(' ')
 
+/** QQ 小黄脸图源（koishijs/QFace 的 jsDelivr 镜像）：s{id}.gif 动图（约 279 个），s{id}.png 静态图（约 376 个） */
+const qqFaceGif = (id: number) => `https://cdn.jsdelivr.net/gh/koishijs/QFace@master/public/gif/s${id}.gif`
+const qqFacePng = (id: number) => `https://cdn.jsdelivr.net/gh/koishijs/QFace@master/public/static/s${id}.png`
+
+/** QQ 表情（face 元素）：动图 → 静态图 → 占位文本 三级降级 */
+const MessageFace: React.FC<{ id: number }> = ({ id }) => {
+  // 0=动图 1=静态图 2=图源均不可用，降级为文本
+  const [stage, setStage] = useState(0)
+
+  if (stage === 2) {
+    return <span className='opacity-80'>[表情:{id}]</span>
+  }
+  return (
+    <img
+      src={stage === 0 ? qqFaceGif(id) : qqFacePng(id)}
+      alt={`[表情:${id}]`}
+      title={`[表情:${id}]`}
+      referrerPolicy='no-referrer'
+      onError={() => setStage(s => s + 1)}
+      className='inline-block w-5 h-5 align-[-4px] mx-px select-none'
+    />
+  )
+}
+
 /** 消息图片：防盗链 no-referrer、限宽限高、加载失败占位、点击遮罩看原图（支持右键菜单与下载按钮） */
 const MessageImage: React.FC<{ file: string, isPureMedia: boolean }> = ({ file, isPureMedia }) => {
   const { setContextMenu } = useChat()
@@ -223,7 +247,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, showTim
             </span>
           )
         case 'face':
-          return <span key={idx} className='opacity-80'>[表情:{part.id}]</span>
+          return <MessageFace key={idx} id={part.id} />
         case 'reply':
           return renderReply(part, idx)
         case 'other':
@@ -256,8 +280,8 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, showTim
         {/* Avatar */}
         <div
           onContextMenu={(e) => {
-            // 群消息头像右键弹成员菜单；其他情况冒泡为消息菜单
-            if (isGroup && !isMe) {
+            // 他人头像右键弹用户菜单（群：@/戳一戳/踢出；私聊：戳一戳）；自己的头像冒泡为消息菜单
+            if (!isMe) {
               openMenu(e, 'avatar')
             }
           }}
@@ -272,7 +296,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, showTim
         </div>
 
         {/* Message Content Column */}
-        <div className={cn('flex flex-col max-w-[70%]', isMe ? 'items-end' : 'items-start')}>
+        <div className={cn('flex flex-col max-w-[70%] min-w-0', isMe ? 'items-end' : 'items-start')}>
           {/* Metadata Row (Title & Display Name) - Always above the bubble */}
           <div className={cn('flex items-center gap-1.5 mb-1 px-1', isMe ? 'flex-row-reverse' : 'flex-row')}>
             {isGroup && roleTitle && (
@@ -289,7 +313,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, showTim
             </span>
           </div>
 
-          <div className='flex items-center gap-2 group'>
+          <div className='flex items-center gap-2 group min-w-0 max-w-full'>
             {/* Status Indicators (Left of bubble if isMe) */}
             {isMe && message.status === 'sending' && (
               <Loader2 className='w-4 h-4 text-mac-blue animate-spin shrink-0' />
@@ -314,7 +338,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, showTim
 
             <div
               className={cn(
-                'relative transition-all duration-300',
+                'relative transition-all duration-300 min-w-0 max-w-full',
                 isPureMedia ? '' : 'px-4 py-2.5 rounded-2xl shadow-sm text-sm break-all leading-relaxed',
                 isPureMedia
                   ? ''

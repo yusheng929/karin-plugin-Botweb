@@ -65,6 +65,17 @@ export const BotService = {
     }
   },
 
+  /** 戳一戳好友 */
+  async pokeFriend (selfId: string, targetId: string): Promise<ApiResult<boolean>> {
+    const bot = this.get(selfId)
+    if (!bot) return fail('Bot不存在')
+    try {
+      return ok(await bot.pokeUser(karin.contactFriend(targetId), targetId))
+    } catch (err) {
+      return fail(err instanceof Error ? err.message : '戳一戳失败')
+    }
+  },
+
   /** 踢出群成员（需要 Bot 是管理员及以上） */
   async kick (selfId: string, groupId: string, targetId: string): Promise<ApiResult<null>> {
     const bot = this.get(selfId)

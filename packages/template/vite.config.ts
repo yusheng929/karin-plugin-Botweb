@@ -11,6 +11,11 @@ export default defineConfig({
         target: 'http://127.0.0.1:7777',
         changeOrigin: true,
         ws: true
+      },
+      // 登录/刷新 token 走 karin 官方接口
+      '/api/v1': {
+        target: 'http://127.0.0.1:7777',
+        changeOrigin: true
       }
     }
   },

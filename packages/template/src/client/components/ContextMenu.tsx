@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 const cn = (...classes: (string | boolean | undefined)[]) => classes.filter(Boolean).join(' ')
 
@@ -17,8 +17,28 @@ interface ContextMenuProps {
   onClose: () => void
 }
 
-/** 通用右键菜单：坐标定位，点击外部 / Esc / 滚动关闭 */
+/** 菜单与视口边缘的最小间距 */
+const VIEWPORT_MARGIN = 8
+
+/** 通用右键菜单：坐标定位（贴视口边缘时自动翻转/收拢），点击外部 / Esc / 滚动关闭 */
 export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, items, isDark, onClose }) => {
+  const menuRef = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState({ left: x, top: y })
+
+  // 挂载后按实际尺寸校正位置：右/下溢出则翻转到光标另一侧，仍装不下则贴边收拢
+  useLayoutEffect(() => {
+    const el = menuRef.current
+    if (!el) return
+    const { width, height } = el.getBoundingClientRect()
+    let left = x
+    let top = y
+    if (left + width > window.innerWidth - VIEWPORT_MARGIN) left = x - width
+    if (top + height > window.innerHeight - VIEWPORT_MARGIN) top = y - height
+    left = Math.min(Math.max(left, VIEWPORT_MARGIN), Math.max(window.innerWidth - width - VIEWPORT_MARGIN, VIEWPORT_MARGIN))
+    top = Math.min(Math.max(top, VIEWPORT_MARGIN), Math.max(window.innerHeight - height - VIEWPORT_MARGIN, VIEWPORT_MARGIN))
+    setPos({ left, top })
+  }, [x, y, items.length])
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -39,9 +59,10 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, items, isDark, o
 
   return (
     <div
+      ref={menuRef}
       className={cn('fixed w-44 rounded-2xl shadow-2xl border p-1 animate-in fade-in zoom-in-95 duration-100 backdrop-blur-2xl z-[400]',
         isDark ? 'bg-gray-800/80 border-white/10' : 'bg-white/80 border-black/5')}
-      style={{ left: x, top: y }}
+      style={{ left: pos.left, top: pos.top }}
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
     >

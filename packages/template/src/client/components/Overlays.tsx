@@ -1,7 +1,7 @@
 import React from 'react'
 import { AtSign, Hand, UserMinus, Copy, Reply, Undo2, Download, ImageIcon } from 'lucide-react'
 import { useChat } from '../ChatContext'
-import { pokeGroupMember, kickGroupMember } from '../api'
+import { pokeGroupMember, pokeFriend, kickGroupMember } from '../api'
 import { resolveMediaSrc, downloadFile, copyImageToClipboard } from '../utils'
 import { MessageElement } from '../../core/types'
 import { ContextMenu, ContextMenuItem } from './ContextMenu'
@@ -15,8 +15,8 @@ export const Overlays: React.FC = () => {
     alertDialog, setAlertDialog,
     actualTheme,
     contextMenu, setContextMenu,
-    currentBot, botGroupRole,
-    setPendingMention, setReplyTo, recallMessage, refreshGroupMembers
+    currentBot, botGroupRole, groupMembers, currentConversation,
+    setPendingMention, setReplyTo, recallMessage, refreshGroupMembers, appendLocalPoke
   } = useChat()
 
   const isDark = actualTheme === 'dark'
@@ -55,29 +55,39 @@ export const Overlays: React.FC = () => {
       ]
     }
 
+    // member 分支没有 msg；avatar/message 分支才使用，下面各分支内自行断言
     const msg = contextMenu.msg!
-    const senderName = msg.senderName || msg.senderId
+    const senderName = msg?.senderName || msg?.senderId || ''
 
-    if (kind === 'avatar') {
+    /** 群成员操作菜单（@ TA / 戳一戳 / 踢出），消息头像右键与成员列表右键共用 */
+    const buildGroupMemberItems = (targetId: string, targetName: string, groupId: string): ContextMenuItem[] => {
       const items: ContextMenuItem[] = [
         {
           label: '@ TA',
           icon: <AtSign className='w-4 h-4' />,
-          onClick: () => setPendingMention(msg.senderId)
+          onClick: () => setPendingMention(targetId)
         },
         {
           label: '戳一戳',
           icon: <Hand className='w-4 h-4' />,
           onClick: () => {
-            pokeGroupMember(currentBot.selfId, msg.peer, msg.senderId)
-              .then(ok => setToast(ok
-                ? { message: `戳了戳 ${senderName}`, type: 'success' }
-                : { message: '戳一戳失败', type: 'error' }))
+            pokeGroupMember(currentBot.selfId, groupId, targetId)
+              .then(ok => {
+                // 协议端一般不回显自己的戳一戳，本地乐观上屏灰条
+                if (ok) appendLocalPoke('group', groupId, targetId)
+                setToast(ok
+                  ? { message: `戳了戳 ${targetName}`, type: 'success' }
+                  : { message: '戳一戳失败', type: 'error' })
+              })
               .catch(err => setToast({ message: `戳一戳失败: ${err.message}`, type: 'error' }))
           }
         }
       ]
-      if (canManageGroup) {
+      // 踢出权限：群主可踢任何成员；管理员只能踢普通成员（不能踢群主/管理员）
+      const targetRole = groupMembers.find(m => String(m.userId) === String(targetId))?.role
+      const canKickTarget = botGroupRole === 'owner' ||
+        (botGroupRole === 'admin' && targetRole !== 'owner' && targetRole !== 'admin')
+      if (canKickTarget) {
         items.push({
           label: '踢出用户',
           icon: <UserMinus className='w-4 h-4' />,
@@ -85,11 +95,11 @@ export const Overlays: React.FC = () => {
           onClick: () => {
             setConfirmDialog({
               title: '踢出用户',
-              message: `确定要将 ${senderName} 踢出群聊吗？`,
+              message: `确定要将 ${targetName} 踢出群聊吗？`,
               confirmText: '确定踢出',
               cancelText: '取消',
               onConfirm: () => {
-                kickGroupMember(currentBot.selfId, msg.peer, msg.senderId)
+                kickGroupMember(currentBot.selfId, groupId, targetId)
                   .then(() => {
                     setToast({ message: '已踢出该成员', type: 'success' })
                     refreshGroupMembers()
@@ -101,6 +111,38 @@ export const Overlays: React.FC = () => {
         })
       }
       return items
+    }
+
+    // 成员列表右键（群聊资料页），当前会话必定为群
+    if (kind === 'member') {
+      const member = contextMenu.member!
+      const groupId = currentConversation!.peer
+      return buildGroupMemberItems(member.userId, member.name, groupId)
+    }
+
+    if (kind === 'avatar') {
+      const isGroupMsg = msg!.scene === 'group'
+      if (isGroupMsg) {
+        return buildGroupMemberItems(msg!.senderId, senderName, msg!.peer)
+      }
+      // 私聊头像：只有戳一戳
+      return [
+        {
+          label: '戳一戳',
+          icon: <Hand className='w-4 h-4' />,
+          onClick: () => {
+            pokeFriend(currentBot.selfId, msg!.senderId)
+              .then(ok => {
+                // 协议端一般不回显自己的戳一戳，本地乐观上屏灰条
+                if (ok) appendLocalPoke('friend', msg!.peer, msg!.senderId)
+                setToast(ok
+                  ? { message: `戳了戳 ${senderName}`, type: 'success' }
+                  : { message: '戳一戳失败', type: 'error' })
+              })
+              .catch(err => setToast({ message: `戳一戳失败: ${err.message}`, type: 'error' }))
+          }
+        }
+      ]
     }
 
     // 消息菜单

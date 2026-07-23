@@ -28,6 +28,11 @@ router.post('/bots/:selfId/groups/:groupId/poke', async (req, res) => {
   res.json(await BotService.poke(req.params.selfId, req.params.groupId, String(req.body?.targetId ?? '')))
 })
 
+/** 戳一戳好友 */
+router.post('/bots/:selfId/friends/:userId/poke', async (req, res) => {
+  res.json(await BotService.pokeFriend(req.params.selfId, req.params.userId))
+})
+
 /** 踢出群成员 */
 router.post('/bots/:selfId/groups/:groupId/kick', async (req, res) => {
   res.json(await BotService.kick(req.params.selfId, req.params.groupId, String(req.body?.targetId ?? '')))

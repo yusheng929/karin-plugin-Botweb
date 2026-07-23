@@ -4,12 +4,12 @@
  * - REST 接口：/botweb/api/*
  * - 实时推送：复用 Karin 内置 WebSocket 服务，接管路径 /botweb/ws
  */
-import karin, { app, hooks, logger } from 'node-karin'
+import karin, { app, authMiddleware, hooks, logger } from 'node-karin'
 import { WebSocket } from 'node-karin/ws'
 import type { Request, Response } from 'node-karin/express'
 import { render } from 'sandbox-template'
 import apiRouter from '@/api'
-import { toChatMessage } from '@/service'
+import { toChatMessage, verifyWsToken } from '@/service'
 
 /** 面板挂载路径 */
 const BASE = '/botweb'
@@ -29,7 +29,9 @@ const broadcast = (payload: unknown) => {
 }
 
 // -------------------- REST 接口（必须先于页面兜底注册） --------------------
-app.use(`${BASE}/api`, apiRouter)
+// 复用 karin 官方鉴权中间件：凭据为 Authorization: Bearer <HTTP_AUTH_KEY 或 karin JWT>
+// （JWT 需配合 x-user-id header；GET 还支持 ?token= 明文 key）
+app.use(`${BASE}/api`, authMiddleware, apiRouter)
 
 // -------------------- 页面托管 --------------------
 const pageHandler = (_req: Request, res: Response) => {
@@ -40,9 +42,16 @@ app.get(BASE, pageHandler)
 app.get(`${BASE}/*splat`, pageHandler)
 
 // -------------------- WebSocket（复用 karin 内置 wss，按路径接管） --------------------
-karin.on(`ws:connection:${WS_PATH}`, (socket: WebSocket, _req: unknown, call: () => void) => {
+// karin 握手不鉴权，浏览器 WS 只能走 query 传凭据（?token=&user_id=），由插件自行校验
+karin.on(`ws:connection:${WS_PATH}`, (socket: WebSocket, req: { url?: string }, call: () => void) => {
   // 必须在 3 秒内调用，否则 karin 会自动断开连接
   call()
+  const query = new URL(req.url || '', 'http://localhost').searchParams
+  if (!verifyWsToken(query.get('token') || undefined, query.get('user_id') || undefined)) {
+    logger.warn('[BotWeb] 面板 WS 鉴权失败，已断开')
+    socket.close(4401, 'unauthorized')
+    return
+  }
   clients.add(socket)
   logger.debug(`[BotWeb] 面板客户端已连接，当前 ${clients.size} 个`)
   const remove = () => {
@@ -60,68 +69,83 @@ hooks.message((e, next) => {
   next()
 })
 
-// -------------------- 撤回推送 --------------------
-karin.accept('notice.privateRecall', (e, next) => {
-  broadcast({
-    type: 'recall',
-    data: {
-      selfId: e.selfId,
-      messageId: e.content.messageId,
-      scene: 'friend',
-      peer: String(e.contact.peer),
-      operatorId: String(e.content.operatorId),
-      targetId: String(e.content.operatorId)
-    }
-  })
-  next()
-})
+/**
+ * node-karin@1.15 类型声明里私聊戳一戳/撤回的 accept key 是 notice.privatePoke / notice.privateRecall，
+ * 但运行时事件的 subEvent 实际是 friendPoke / friendRecall，accept 按 `${event}.${subEvent}` 匹配，
+ * 按声明的 key 注册永远收不到事件，这里按运行时 key 注册（断言绕过声明与运行时不一致的问题）。
+ */
+const PRIVATE_RECALL_EVENT = 'notice.friendRecall' as unknown as 'notice.privateRecall'
+const PRIVATE_POKE_EVENT = 'notice.friendPoke' as unknown as 'notice.privatePoke'
 
-karin.accept('notice.groupRecall', (e, next) => {
-  broadcast({
-    type: 'recall',
-    data: {
-      selfId: e.selfId,
-      messageId: e.content.messageId,
-      scene: 'group',
-      peer: String(e.groupId),
-      operatorId: String(e.content.operatorId),
-      targetId: String(e.content.targetId)
-    }
-  })
-  next()
-})
+/**
+ * 撤回 / 戳一戳推送（前端渲染为小灰条）。
+ * 注意：karin.accept() 只是创建插件对象，karin 扫描 apps 模块的**具名导出**完成注册
+ * （default 导出会被跳过），不导出就是死代码，所以这里集中导出为数组。
+ */
+export const noticeHandlers = [
+  // -------------------- 撤回推送 --------------------
+  karin.accept(PRIVATE_RECALL_EVENT, (e, next) => {
+    broadcast({
+      type: 'recall',
+      data: {
+        selfId: e.selfId,
+        messageId: e.content.messageId,
+        scene: 'friend',
+        peer: String(e.contact.peer),
+        operatorId: String(e.content.operatorId),
+        targetId: String(e.content.operatorId)
+      }
+    })
+    next()
+  }),
 
-// -------------------- 戳一戳推送（前端渲染为小灰条） --------------------
-karin.accept('notice.privatePoke', (e, next) => {
-  broadcast({
-    type: 'poke',
-    data: {
-      selfId: e.selfId,
-      scene: 'friend',
-      peer: String(e.contact.peer),
-      operatorId: String(e.content.operatorId),
-      targetId: String(e.content.targetId),
-      action: e.content.action || '戳了戳',
-      suffix: e.content.suffix || ''
-    }
-  })
-  next()
-})
+  karin.accept('notice.groupRecall', (e, next) => {
+    broadcast({
+      type: 'recall',
+      data: {
+        selfId: e.selfId,
+        messageId: e.content.messageId,
+        scene: 'group',
+        peer: String(e.groupId),
+        operatorId: String(e.content.operatorId),
+        targetId: String(e.content.targetId)
+      }
+    })
+    next()
+  }),
 
-karin.accept('notice.groupPoke', (e, next) => {
-  broadcast({
-    type: 'poke',
-    data: {
-      selfId: e.selfId,
-      scene: 'group',
-      peer: String(e.groupId),
-      operatorId: String(e.content.operatorId),
-      targetId: String(e.content.targetId),
-      action: e.content.action || '戳了戳',
-      suffix: e.content.suffix || ''
-    }
-  })
-  next()
-})
+  // -------------------- 戳一戳推送 --------------------
+  karin.accept(PRIVATE_POKE_EVENT, (e, next) => {
+    broadcast({
+      type: 'poke',
+      data: {
+        selfId: e.selfId,
+        scene: 'friend',
+        peer: String(e.contact.peer),
+        operatorId: String(e.content.operatorId),
+        targetId: String(e.content.targetId),
+        action: e.content.action || '戳了戳',
+        suffix: e.content.suffix || ''
+      }
+    })
+    next()
+  }),
 
-logger.info(`[BotWeb] 面板已挂载：http://127.0.0.1:7777${BASE}（仅限内网/本地访问，接口未加鉴权）`)
+  karin.accept('notice.groupPoke', (e, next) => {
+    broadcast({
+      type: 'poke',
+      data: {
+        selfId: e.selfId,
+        scene: 'group',
+        peer: String(e.groupId),
+        operatorId: String(e.content.operatorId),
+        targetId: String(e.content.targetId),
+        action: e.content.action || '戳了戳',
+        suffix: e.content.suffix || ''
+      }
+    })
+    next()
+  })
+]
+
+logger.info(`[BotWeb] 面板已挂载：http://127.0.0.1:7777${BASE}（接口已接入 karin 鉴权）`)

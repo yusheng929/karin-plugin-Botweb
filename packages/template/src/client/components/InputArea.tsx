@@ -11,6 +11,7 @@ import {
 import { useChat } from '../ChatContext'
 import { MessageElement } from '../../core/types'
 import { getMessageSummary } from '../utils'
+import { EmojiPicker } from './EmojiPicker'
 
 const cn = (...classes: (string | boolean | undefined)[]) => classes.filter(Boolean).join(' ')
 
@@ -22,6 +23,7 @@ export const InputArea: React.FC = () => {
   } = useChat()
   const [inputValue, setInputValue] = useState('')
   const [atMenu, setAtMenu] = useState<{ filter: string } | null>(null)
+  const [showEmoji, setShowEmoji] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -51,6 +53,13 @@ export const InputArea: React.FC = () => {
     setSelectedIndex(0)
   }, [atMenu?.filter])
 
+  // 切换会话时收起 emoji 面板和 @ 菜单（依赖会话 key 而非对象：消息到达会使会话对象重建，但 key 不变）
+  const conversationKey = currentConversation?.key
+  useEffect(() => {
+    setShowEmoji(false)
+    setAtMenu(null)
+  }, [conversationKey])
+
   // 右键菜单「@ TA」：向输入框插入 @userId（复用现有 @ 解析逻辑）
   useEffect(() => {
     if (!pendingMention) return
@@ -64,7 +73,7 @@ export const InputArea: React.FC = () => {
     return member ? (member.card || member.nick) : undefined
   }
 
-  const handleSend = async () => {
+  const handleSend = () => {
     if (isDisabled || !currentConversation) return
 
     // 解析 @：规则为 @ID + 空格，且 ID 在当前群成员中（或为 all）
@@ -102,10 +111,27 @@ export const InputArea: React.FC = () => {
 
     if (finalContent.length === 0) return
 
-    await sendMessage(finalContent)
+    // 点击发送立即清空输入；发送结果由消息的 status（sending/failed）和 toast 体现
     setInputValue('')
     setStagedImages([])
     setReplyTo(null)
+    setShowEmoji(false)
+    void sendMessage(finalContent)
+  }
+
+  /** 在光标处插入 emoji（无焦点时追加到末尾），插入后保持焦点并把光标移到 emoji 之后 */
+  const insertEmoji = (emoji: string) => {
+    const el = textareaRef.current
+    const start = el?.selectionStart ?? inputValue.length
+    const end = el?.selectionEnd ?? inputValue.length
+    setInputValue(inputValue.slice(0, start) + emoji + inputValue.slice(end))
+    setTimeout(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus()
+        const pos = start + emoji.length
+        textareaRef.current.setSelectionRange(pos, pos)
+      }
+    }, 0)
   }
 
   const insertAt = (userId: string) => {
@@ -140,6 +166,7 @@ export const InputArea: React.FC = () => {
       if (lastAt !== -1) {
         const textAfterAt = textBeforeCursor.substring(lastAt + 1)
         if (!textAfterAt.includes(' ') && !textAfterAt.includes('\n')) {
+          setShowEmoji(false)
           setAtMenu({ filter: textAfterAt })
           return
         }
@@ -182,6 +209,15 @@ export const InputArea: React.FC = () => {
 
   return (
     <footer className={cn('p-4 border-t shrink-0 relative', isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-mac-border')}>
+      {/* Emoji 面板 */}
+      {showEmoji && (
+        <EmojiPicker
+          isDark={isDark}
+          onSelect={insertEmoji}
+          onClose={() => setShowEmoji(false)}
+        />
+      )}
+
       {/* At Menu */}
       {atMenu && isGroup && filteredMembers.length > 0 && (
         <div
@@ -242,7 +278,16 @@ export const InputArea: React.FC = () => {
         )}
 
         <div className='flex items-center gap-1.5 text-mac-text-secondary'>
-          <button className='p-2 hover:bg-black/5 rounded-lg transition-all'><Smile className='w-5 h-5' /></button>
+          <button
+            onClick={() => {
+              setAtMenu(null)
+              setShowEmoji(!showEmoji)
+            }}
+            className={cn('p-2 rounded-lg transition-all', showEmoji ? 'bg-mac-blue/10 text-mac-blue' : 'hover:bg-black/5')}
+            title='表情'
+          >
+            <Smile className='w-5 h-5' />
+          </button>
           <button
             onClick={() => {
               if (fileInputRef.current) {

@@ -26,11 +26,13 @@ export interface Conversation {
 export interface ContextMenuState {
   x: number
   y: number
-  /** avatar：群消息发送者头像菜单；message：消息菜单；image：图片（lightbox）菜单 */
-  kind: 'avatar' | 'message' | 'image'
+  /** avatar：消息发送者头像菜单；message：消息菜单；image：图片（lightbox）菜单；member：群资料页成员列表菜单 */
+  kind: 'avatar' | 'message' | 'image' | 'member'
   msg?: ChatMessage
   /** kind 为 image 时的图片地址 */
   file?: string
+  /** kind 为 member 时的目标成员 */
+  member?: { userId: string, name: string }
 }
 
 interface ChatContextType {
@@ -52,6 +54,8 @@ interface ChatContextType {
   sendMessage: (elements: MessageElement[]) => Promise<void>
   resendMessage: (messageId: string) => Promise<void>
   recallMessage: (msg: ChatMessage) => Promise<void>
+  /** 面板戳一戳成功后的本地乐观上屏（系统灰条） */
+  appendLocalPoke: (scene: ChatScene, peer: string, targetId: string) => void
   handleFiles: (files: FileList | null) => Promise<void>
 
   // 回复 / 右键菜单 / @ 草稿 / 跳转高亮
@@ -369,6 +373,42 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     })
   }, [])
 
+  // ---------- 戳一戳灰条 ----------
+
+  /** 面板发起戳一戳的待回显计数（key: selfId:scene:peer:operatorId:targetId），协议端回显自己的戳一戳时按此去重 */
+  const pendingPokeRef = useRef(new Map<string, { count: number, time: number }>())
+
+  /** 追加戳一戳系统灰条（WS 推送与本地乐观上屏共用） */
+  const appendPoke = useCallback((selfId: string, scene: ChatScene, peer: string, operatorId: string, targetId: string, action: string, suffix: string) => {
+    const opName = resolveNameRef.current(selfId, operatorId)
+    const targetName = resolveNameRef.current(selfId, targetId)
+    const text = `${opName} ${action} ${targetName} ${suffix}`.replace(/\s+/g, ' ').trim()
+    const sysMsg: ChatMessage = {
+      messageId: `poke-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      seq: 0,
+      selfId,
+      scene,
+      peer,
+      senderId: operatorId,
+      senderName: opName,
+      time: Math.floor(Date.now() / 1000),
+      elements: [{ type: 'text', text }],
+      system: true
+    }
+    const key = fullKey(selfId, scene, peer)
+    setMessageMap(prev => ({ ...prev, [key]: [...(prev[key] || []), sysMsg] }))
+  }, [])
+
+  /** 面板戳一戳成功后的本地乐观上屏（多数协议端不回显自己的戳一戳 notice，收不到 WS 推送） */
+  const appendLocalPoke = useCallback((scene: ChatScene, peer: string, targetId: string) => {
+    const bot = currentBotRef.current
+    if (!bot) return
+    const dedupKey = `${bot.selfId}:${scene}:${peer}:${bot.selfId}:${targetId}`
+    const entry = pendingPokeRef.current.get(dedupKey)
+    pendingPokeRef.current.set(dedupKey, { count: (entry?.count || 0) + 1, time: Date.now() })
+    appendPoke(bot.selfId, scene, peer, bot.selfId, targetId, '戳了戳', '')
+  }, [appendPoke])
+
   // ---------- WS 推送 ----------
 
   useEffect(() => {
@@ -414,23 +454,17 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     })
 
     const unbindPoke = wsClient.onPoke(({ selfId, scene, peer, operatorId, targetId, action, suffix }) => {
-      const opName = resolveNameRef.current(selfId, operatorId)
-      const targetName = resolveNameRef.current(selfId, targetId)
-      const text = `${opName} ${action} ${targetName} ${suffix}`.replace(/\s+/g, ' ').trim()
-      const sysMsg: ChatMessage = {
-        messageId: `poke-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        seq: 0,
-        selfId,
-        scene,
-        peer,
-        senderId: operatorId,
-        senderName: opName,
-        time: Math.floor(Date.now() / 1000),
-        elements: [{ type: 'text', text }],
-        system: true
+      // 协议端若回显面板自己发起的戳一戳（10 秒窗口内），按计数去重，避免灰条双条
+      const dedupKey = `${selfId}:${scene}:${peer}:${operatorId}:${targetId}`
+      const entry = pendingPokeRef.current.get(dedupKey)
+      if (entry) {
+        if (entry.count > 0 && Date.now() - entry.time < 10_000) {
+          pendingPokeRef.current.set(dedupKey, { count: entry.count - 1, time: entry.time })
+          return
+        }
+        pendingPokeRef.current.delete(dedupKey)
       }
-      const key = fullKey(selfId, scene, peer)
-      setMessageMap(prev => ({ ...prev, [key]: [...(prev[key] || []), sysMsg] }))
+      appendPoke(selfId, scene, peer, operatorId, targetId, action, suffix)
     })
 
     return () => {
@@ -438,7 +472,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       unbindRecall()
       unbindPoke()
     }
-  }, [applyRecall])
+  }, [applyRecall, appendPoke])
 
   // ---------- 会话列表 ----------
 
@@ -649,6 +683,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       sendMessage,
       resendMessage,
       recallMessage,
+      appendLocalPoke,
       handleFiles,
       replyTo,
       setReplyTo,
