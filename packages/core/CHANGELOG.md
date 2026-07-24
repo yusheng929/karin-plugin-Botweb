@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.0.2](https://github.com/yusheng929/karin-plugin-Botweb/compare/core-v1.0.1...core-v1.0.2) (2026-07-24)
+
+
+### 🐛 错误修复
+
+* token ([ddad245](https://github.com/yusheng929/karin-plugin-Botweb/commit/ddad245f9c9a26fd9bb92bf65b62966fccb04752))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * devDependencies
+    * sandbox-template bumped to 1.0.2
+
 ## [1.0.1](https://github.com/yusheng929/karin-plugin-Botweb/compare/core-v1.0.0...core-v1.0.1) (2026-07-24)
 
 
