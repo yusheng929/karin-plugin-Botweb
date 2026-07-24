@@ -1,16 +1,16 @@
 {
-  "name": "karin-plugin-Botweb",
+  "name": "karin-plugin-botweb",
   "version": "1.0.3",
   "author": "瑜笙",
   "type": "module",
   "description": "基于Karin编写的Bot面板",
-  "homepage": "https://github.com/yusheng929/karin-plugin-BotWeb",
+  "homepage": "https://github.com/yusheng929/karin-plugin-botweb",
   "bugs": {
-    "url": "https://github.com/yusheng929/karin-plugin-BotWeb/issues"
+    "url": "https://github.com/yusheng929/karin-plugin-botweb/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yusheng929/karin-plugin-BotWeb.git"
+    "url": "git+https://github.com/yusheng929/karin-plugin-botweb.git"
   },
   "scripts": {
     "app": "node lib/app.js",
