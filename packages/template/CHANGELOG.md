@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.3](https://github.com/yusheng929/karin-plugin-Botweb/compare/template-v1.0.2...template-v1.0.3) (2026-07-24)
+
+
+### 🔧 其他更新
+
+* **template:** Synchronize plugin versions
+
 ## [1.0.2](https://github.com/yusheng929/karin-plugin-Botweb/compare/template-v1.0.1...template-v1.0.2) (2026-07-24)
 
 
