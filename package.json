@@ -1,15 +1,15 @@
 {
-  "name": "@ys7zts/plugin-neko",
+  "name": "karin-plugin-botWeb",
   "version": "1.0.0",
   "description": "",
   "keywords": [],
   "license": "MIT",
-  "author": "ys7zTS",
+  "author": "瑜笙",
   "type": "module",
   "main": "",
   "scripts": {
-    "dev": "pnpm --filter karin-plugin-BotWeb dev",
-    "app": "pnpm --filter karin-plugin-BotWeb app",
+    "dev": "pnpm --filter karin-plugin-Botweb dev",
+    "app": "pnpm --filter karin-plugin-Botweb app",
     "build": "pnpm -r run build",
     "build:web": "pnpm -F sandbox-template build",
     "dev:web": "pnpm -F sandbox-template dev"
