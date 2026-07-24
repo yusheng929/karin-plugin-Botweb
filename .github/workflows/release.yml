@@ -49,7 +49,6 @@ jobs:
       - name: 发布 core 到 GitHub Packages
         run: npm publish --access public
         env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   publish-core-npm:
     needs: [ release-please, build ]
@@ -71,4 +70,4 @@ jobs:
       - name: 发布 core 到 npm
         run: npm publish --access public
         env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEM: ${{ secrets.NPM_TOKEN }}
