@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { KeyRound, Loader2 } from 'lucide-react'
+import { Send, Loader2 } from 'lucide-react'
 import { login } from '../auth'
 
 /**
@@ -26,18 +26,14 @@ export const LoginScreen: React.FC = () => {
   }
 
   return (
-    <div className='flex h-full items-center justify-center bg-gray-950 font-sans antialiased relative overflow-hidden'>
-      {/* 背景光斑（与面板一致的玻璃质感） */}
-      <div className='absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-mac-blue/10 rounded-full blur-[120px] pointer-events-none' />
-      <div className='absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-500/10 rounded-full blur-[120px] pointer-events-none' />
-
-      <div className='w-full max-w-[340px] mx-4 rounded-2xl border border-white/10 bg-gray-900/80 backdrop-blur-2xl shadow-2xl p-8 animate-in zoom-in-95 duration-200'>
-        <div className='flex flex-col items-center mb-6'>
-          <div className='w-12 h-12 rounded-2xl bg-mac-blue/15 flex items-center justify-center mb-3'>
-            <KeyRound className='w-6 h-6 text-mac-blue' />
+    <div className='flex h-full items-center justify-center bg-tg-chat-bg font-sans antialiased'>
+      <div className='w-full max-w-[360px] mx-4 rounded-2xl bg-tg-bg shadow-xl p-8 animate-in zoom-in-95 duration-200'>
+        <div className='flex flex-col items-center mb-8'>
+          <div className='w-20 h-20 rounded-full bg-tg-blue flex items-center justify-center mb-4 shadow-lg'>
+            <Send className='w-9 h-9 text-white -ml-1' />
           </div>
-          <h1 className='text-lg font-bold text-white tracking-tight'>BotWeb 面板</h1>
-          <p className='text-xs text-gray-400 mt-1'>请输入 HTTP_AUTH_KEY 登录</p>
+          <h1 className='text-xl font-semibold'>BotWeb</h1>
+          <p className='text-sm text-tg-text-secondary mt-1.5'>请输入 HTTP_AUTH_KEY 登录</p>
         </div>
 
         <form
@@ -45,7 +41,7 @@ export const LoginScreen: React.FC = () => {
             e.preventDefault()
             submit()
           }}
-          className='flex flex-col gap-3'
+          className='flex flex-col gap-4'
         >
           <input
             type='password'
@@ -53,20 +49,20 @@ export const LoginScreen: React.FC = () => {
             onChange={e => setKey(e.target.value)}
             placeholder='HTTP_AUTH_KEY'
             autoFocus
-            className='w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-sm text-white placeholder-gray-500 outline-none focus:border-mac-blue/60 focus:ring-2 focus:ring-mac-blue/20 transition-all'
+            className='w-full px-4 py-3 rounded-xl bg-tg-hover text-sm outline-none placeholder:text-tg-text-secondary focus:ring-2 focus:ring-tg-blue/50 transition-shadow'
           />
-          {error && <p className='text-xs text-red-400 leading-relaxed'>{error}</p>}
+          {error && <p className='text-xs text-red-500 leading-relaxed'>{error}</p>}
           <button
             type='submit'
             disabled={loading || !key.trim()}
-            className='w-full py-2.5 rounded-xl bg-mac-blue text-white text-sm font-bold transition-all hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2'
+            className='w-full py-3 rounded-xl bg-tg-blue text-white text-sm font-medium uppercase tracking-wide transition-colors hover:bg-tg-blue-hover disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2'
           >
             {loading && <Loader2 className='w-4 h-4 animate-spin' />}
             登录
           </button>
         </form>
 
-        <p className='text-[11px] text-gray-500 text-center mt-5 leading-relaxed'>
+        <p className='text-xs text-tg-text-secondary text-center mt-6 leading-relaxed'>
           与 Karin WebUI 共享登录态，任一边登录后两边均免登录
         </p>
       </div>

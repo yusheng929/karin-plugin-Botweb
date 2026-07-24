@@ -46,6 +46,8 @@ packages/
 │   │       ├── auth.ts            # WS 鉴权：verifyWsToken（karin JWT HS256 校验 + 明文 key 兜底）
 │   │       └── types.ts           # 请求体类型
 │   ├── tsdown.config.ts           # entry: src/*.ts + src/apps/*.ts → lib/，neverBundle node-karin
+│   ├── scripts/download-faces.mjs # QFace 表情本地化下载（→ resources/faces，含 manifest.json）
+│   ├── resources/faces/           # QQ 小黄脸本地图源（gif/static，由 /botweb/faces/* 托管）
 │   └── development.env            # dev 环境变量（HTTP_PORT=7777，HTTP_AUTH_KEY=abc123）
 └── template/                      # 前端
     ├── index.html                 # vite 入口（dev 用）
@@ -57,9 +59,11 @@ packages/
     │       ├── auth.ts            # ★ 登录态：karin /api/v1/login|refresh，localStorage 键与 karin WebUI 同名
     │       ├── sha256.ts          # sha256（crypto.subtle 优先，http 局域网降级纯 JS 实现）
     │       ├── api.ts             # REST 封装（带鉴权头 + 401/419 刷新重放）+ WsClient（自动重连）
-    │       ├── ChatContext.tsx    # ★ 全部状态：bots/会话/消息 Map/未读/缓存/右键菜单/回复
-    │       ├── utils.ts           # toMillis/resolveMediaSrc/downloadFile/copyImageToClipboard 等
-    │       └── components/        # Sidebar/ChatWindow/MessageList/MessageItem/InputArea/LoginScreen/
+    │       ├── utils.ts           # cn/toMillis/resolveMediaSrc/downloadFile/copyImageToClipboard 等
+    │       ├── state/             # ★ 状态层（UiProvider 外层、ChatProvider 内层，chat 通过 useUi 取 setToast）
+    │       │   ├── chat.tsx       # 数据层：bots/会话/messageMap/未读/缓存/WS/发送撤回（messageMap/unread 走 useReducer）
+    │       │   └── ui.tsx         # UI 状态：主题（同步根元素 .dark class）/toast/对话框/右键菜单/回复/stagedImages
+    │       └── components/        # TG 风格组件：Sidebar/ChatWindow/MessageList/MessageItem/InputArea/LoginScreen/
     │                              # ContextMenu/Overlays/ChatDetailsSidebar/EmojiPicker
     ├── scripts/inline.mjs         # vite 产物 → 单文件 HTML → src/generated/html.ts
     └── tsdown.config.ts           # 打包 src/index.ts → dist/index.js（供 core 引用）
@@ -117,8 +121,12 @@ pnpm exec tsc --noEmit -p packages/core      # core 类型检查（template 需�
 - express v5 通配符写法是 `/botweb/*splat`；API 路由必须注册在 SPA 兜底之前。
 - `express.json({ limit: '50mb' })` 不能删——图片/文件以 base64 随 JSON 发送，默认 100kb 会被拒且 express 返回 HTML 错误页。
 - 时间戳单位混乱：karin 事件是**秒**，但部分接口返回**毫秒**——前端一律经 `toMillis()` 归一（>1e12 视为毫秒）。
+- 前端视觉为 **Telegram Desktop 经典风格**：配色集中在 `index.css` 的 `tg-*` CSS 变量（`:root` 浅色 / `.dark` 深色），经 `@theme inline` 映射为 tailwind 的 `bg-tg-*`/`text-tg-*` 等工具类；暗色由 `state/ui.tsx` 给根元素挂 `.dark` class + tailwind `dark:` 变体（`@custom-variant`）驱动。气泡尾巴是 `.bubble-tail-me/.bubble-tail-them` 纯 CSS 三角。
 - QQ 图床按 referer 防盗链：所有 `<img>` 必须带 `referrerPolicy="no-referrer"`；karin 的 `base64://` 前缀需转成 data URL（`resolveMediaSrc`）。
-- QQ 小黄脸（face 元素）**只做了显示没做发送**：图片走 koishijs/QFace 的 jsDelivr 镜像（动图 `public/gif/s{id}.gif` 约 279 个，静态 `public/static/s{id}.png` 约 376 个），`MessageFace` 按 动图→静态图→`[表情:id]` 文本 三级降级；输入框的表情面板是 unicode emoji（随文本发送），与 face 无关。
+- QQ 小黄脸（face 元素）：图源已**本地化**——`core/scripts/download-faces.mjs` 把 koishijs/QFace 的动图/静态图下载到 `core/resources/faces/{gif,static}/` 并生成 `manifest.json`（清单接口 data.jsdelivr.com 部分网络 403，脚本改为直接探测 CDN id 0..399，已存在文件会跳过），由 core 的 `GET /botweb/faces/manifest.json` 与 `/botweb/faces/:type/:name` 路由托管（不鉴权、长缓存，注册在 SPA 兜底之前）。`MessageFace` 按 本地动图→本地静态图→`[表情:id]` 文本 三级降级（url 工具在 template `utils.ts` 的 `qqFaceGif/qqFacePng`）。
+- **表情资源前端持久缓存**（`template/src/client/faceCache.ts`）：blob 存 IndexedDB（`botweb-faces/faces`），命中后 `<img>` 直接用 object URL、零网络请求；回源并发限 6；manifest 内存缓存一次；打开 QFace 页签时后台预热全部静态图。改表情相关代码时 `<img>` 的 src 必须走 `useCachedSrc()`，不要直接用远程/路由 url。
+- **QQ 平台适配**：`BotInfo.protocol` 携带 `bot.adapter.protocol`（契约两边已同步）；`utils.isQQProtocol` 判定 QQ 协议实现（`icqq/gocq-http/napcat/oicq/llonebot/lagrange`，**qqbot 官方 API 不支持经典小黄脸，不计入**）。QQ bot 的表情面板有「QFace」横向分类，点选后表情以**内联图片**插入输入框光标处（见下条），与文本混排，发送时按出现顺序解析为 text/face 元素序列；非 QQ bot 无此分类、不能发 face。
+- **输入框是 contenteditable 富文本**（`.rich-input`，非受控组件）：QQ 表情以 `<img data-face-id>` 内联混排，发送时 `parseEditor()` 遍历 DOM 生成 text/face 元素序列再拆 @；粘贴只取纯文本、文件粘贴走 handleFiles；空态由 `syncEmpty()` 手动同步（驱动发送按钮禁用）；placeholder 靠 CSS `.rich-input:empty::before`。选择表情/插入 @ 后必须 `editor.focus()`，否则回车会触发聚焦的按钮而不是发送。
 - 前端 localStorage 缓存按 `botweb:msgs:{selfId}` 分 bot，每会话上限 100 条；`data:` 开头的媒体写缓存前降级为占位文本（防撑爆 5MB 配额）。
 - tsdown 的 core 构建要求 template 已构建（`dist/index.js` + `index.d.ts` 存在），否则类型检查和打包都会失败。
 - ESLint 目前跑不起来（`eslint.config.js` 依赖未安装的 `globals` 包），为既有问题。

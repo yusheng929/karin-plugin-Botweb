@@ -1,10 +1,24 @@
 import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import { MessageElement } from '../core/types'
+import { BASE } from './api'
 
 export function cn (...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
+
+/**
+ * QQ 协议实现（onebot 系协议端，face 元素为 QQ 小黄脸数字 id）：
+ * qqbot 为官方机器人 API，不支持经典小黄脸，不计入
+ */
+const QQ_FACE_PROTOCOLS = ['icqq', 'gocq-http', 'napcat', 'oicq', 'llonebot', 'lagrange']
+
+/** 当前 bot 是否为 QQ 协议实现（决定能否发送 qqface / 表情面板是否展示 qqface） */
+export const isQQProtocol = (protocol?: string) => !!protocol && QQ_FACE_PROTOCOLS.includes(protocol)
+
+/** QQ 小黄脸本地图源（core 托管，见 core/scripts/download-faces.mjs） */
+export const qqFaceGif = (id: number) => `${BASE}/faces/gif/s${id}.gif`
+export const qqFacePng = (id: number) => `${BASE}/faces/static/s${id}.png`
 
 /** 消息发送者头像（DTO 未携带发送者头像，沿用 QQ 头像服务按 ID 获取） */
 export const getAvatarUrl = (type: 'private' | 'group', id: number | string, customUrl?: string) => {

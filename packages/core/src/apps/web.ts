@@ -7,9 +7,12 @@
 import karin, { app, authMiddleware, hooks, logger } from 'node-karin'
 import { WebSocket } from 'node-karin/ws'
 import type { Request, Response } from 'node-karin/express'
+import path from 'node:path'
+import fs from 'node:fs'
 import { render } from 'sandbox-template'
 import apiRouter from '@/api'
 import { toChatMessage, verifyWsToken } from '@/service'
+import { dir } from '@/dir'
 
 /** 面板挂载路径 */
 const BASE = '/botweb'
@@ -32,6 +35,38 @@ const broadcast = (payload: unknown) => {
 // 复用 karin 官方鉴权中间件：凭据为 Authorization: Bearer <HTTP_AUTH_KEY 或 karin JWT>
 // （JWT 需配合 x-user-id header；GET 还支持 ?token= 明文 key）
 app.use(`${BASE}/api`, authMiddleware, apiRouter)
+
+// -------------------- QQ 小黄脸静态资源（本地化，见 scripts/download-faces.mjs） --------------------
+// 远程 jsDelivr 图床慢且易超时，表情文件下载到插件 resources/faces 下由本路由托管
+const FACES_DIR = path.join(dir.pluginDir, 'resources', 'faces')
+
+app.get(`${BASE}/faces/manifest.json`, (_req: Request, res: Response) => {
+  const file = path.join(FACES_DIR, 'manifest.json')
+  if (!fs.existsSync(file)) {
+    res.status(404).json({ code: 404, message: 'faces not downloaded', data: null })
+    return
+  }
+  res.setHeader('Cache-Control', 'public, max-age=86400')
+  res.sendFile(file)
+})
+
+app.get(`${BASE}/faces/:type/:name`, (req: Request, res: Response) => {
+  // express v5 params 类型为 string | string[]，统一转字符串（数组形态随后会被正则挡下）
+  const type = String(req.params.type)
+  const name = String(req.params.name)
+  // 只允许 gif/static 目录下的 s{id}.(gif|png)，防路径穿越
+  if ((type !== 'gif' && type !== 'static') || !/^s\d+\.(gif|png)$/.test(name)) {
+    res.status(404).json({ code: 404, message: 'not found', data: null })
+    return
+  }
+  const file = path.join(FACES_DIR, type, name)
+  if (!fs.existsSync(file)) {
+    res.status(404).json({ code: 404, message: 'not found', data: null })
+    return
+  }
+  res.setHeader('Cache-Control', 'public, max-age=604800, immutable')
+  res.sendFile(file)
+})
 
 // -------------------- 页面托管 --------------------
 const pageHandler = (_req: Request, res: Response) => {

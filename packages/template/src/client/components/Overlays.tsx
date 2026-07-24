@@ -1,25 +1,23 @@
 import React from 'react'
 import { AtSign, Hand, UserMinus, Copy, Reply, Undo2, Download, ImageIcon } from 'lucide-react'
-import { useChat } from '../ChatContext'
+import { useChat } from '../state/chat'
+import { useUi } from '../state/ui'
 import { pokeGroupMember, pokeFriend, kickGroupMember } from '../api'
-import { resolveMediaSrc, downloadFile, copyImageToClipboard } from '../utils'
+import { resolveMediaSrc, downloadFile, copyImageToClipboard, cn } from '../utils'
 import { MessageElement } from '../../core/types'
 import { ContextMenu, ContextMenuItem } from './ContextMenu'
 
-const cn = (...classes: (string | boolean | undefined)[]) => classes.filter(Boolean).join(' ')
-
 export const Overlays: React.FC = () => {
   const {
-    toast, setToast,
-    confirmDialog, setConfirmDialog,
-    alertDialog, setAlertDialog,
-    actualTheme,
-    contextMenu, setContextMenu,
     currentBot, botGroupRole, groupMembers, currentConversation,
-    setPendingMention, setReplyTo, recallMessage, refreshGroupMembers, appendLocalPoke
+    recallMessage, refreshGroupMembers, appendLocalPoke
   } = useChat()
-
-  const isDark = actualTheme === 'dark'
+  const {
+    toast, confirmDialog, setConfirmDialog,
+    alertDialog, setAlertDialog,
+    contextMenu, setContextMenu,
+    setPendingMention, setReplyTo, setToast
+  } = useUi()
 
   // ---------- 右键菜单 ----------
 
@@ -207,43 +205,34 @@ export const Overlays: React.FC = () => {
           x={contextMenu.x}
           y={contextMenu.y}
           items={buildMenuItems()}
-          isDark={isDark}
           onClose={() => setContextMenu(null)}
         />
       )}
 
-      {/* Toast */}
+      {/* Toast（TG 风格底部深色浮条） */}
       {toast && (
-        <div className='fixed top-6 left-1/2 -translate-x-1/2 z-[200] animate-in slide-in-from-top-4 duration-300'>
-          <div className={cn(
-            'backdrop-blur-2xl px-6 py-3 rounded-2xl shadow-[0_10px_40px_rgba(0,0,0,0.2)] flex items-center gap-3 border transition-all duration-300',
-            toast.type === 'success'
-              ? (isDark ? 'bg-green-500/20 border-green-500/30 text-green-400' : 'bg-green-50/80 border-green-200 text-green-600')
-              : toast.type === 'error'
-                ? (isDark ? 'bg-red-500/20 border-red-500/30 text-red-400' : 'bg-red-50/80 border-red-200 text-red-600')
-                : (isDark ? 'bg-gray-800/80 border-white/10 text-white' : 'bg-white/80 border-black/5 text-mac-text-main')
-          )}
-          >
-            <div className={cn('w-2 h-2 rounded-full animate-pulse',
-              toast.type === 'success' ? 'bg-green-500' : toast.type === 'error' ? 'bg-red-500' : 'bg-mac-blue')}
+        <div className='fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] animate-in slide-in-from-bottom-3 fade-in duration-200'>
+          <div className='bg-[#212121]/95 dark:bg-[#f5f5f5]/95 text-white dark:text-black px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2.5'>
+            <div className={cn('w-2 h-2 rounded-full shrink-0',
+              toast.type === 'success' ? 'bg-tg-badge' : toast.type === 'error' ? 'bg-red-500' : 'bg-tg-blue')}
             />
-            <span className='text-sm font-bold tracking-tight'>{toast.message}</span>
+            <span className='text-sm'>{toast.message}</span>
           </div>
         </div>
       )}
 
       {/* Confirm Dialog */}
       {confirmDialog && (
-        <div className='fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/40 backdrop-blur-[2px] animate-in fade-in duration-200'>
-          <div className={cn('w-full max-w-[320px] rounded-2xl shadow-2xl border animate-in zoom-in-95 duration-200 overflow-hidden', isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-mac-border')}>
-            <div className='p-6 pb-4'>
-              <h3 className={cn('text-lg font-semibold mb-2', isDark ? 'text-white' : 'text-gray-900')}>{confirmDialog.title}</h3>
-              <p className={cn('text-sm leading-relaxed', isDark ? 'text-gray-400' : 'text-gray-500')}>{confirmDialog.message}</p>
+        <div className='fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/40 animate-in fade-in duration-150'>
+          <div className='w-full max-w-[320px] rounded-2xl shadow-2xl bg-tg-bg animate-in zoom-in-95 duration-150 overflow-hidden'>
+            <div className='p-5 pb-3'>
+              <h3 className='text-base font-semibold mb-1.5'>{confirmDialog.title}</h3>
+              <p className='text-sm text-tg-text-secondary leading-relaxed'>{confirmDialog.message}</p>
             </div>
-            <div className={cn('flex border-t', isDark ? 'border-gray-700' : 'border-mac-border')}>
+            <div className='flex justify-end gap-1 px-3 pb-3'>
               <button
                 onClick={() => setConfirmDialog(null)}
-                className={cn('flex-1 px-4 py-3 text-sm font-medium transition-colors border-r', isDark ? 'border-gray-700 text-gray-400 hover:bg-gray-700' : 'border-mac-border text-gray-500 hover:bg-mac-active')}
+                className='px-4 py-2 text-sm font-medium text-tg-blue rounded-lg hover:bg-tg-hover transition-colors uppercase'
               >
                 {confirmDialog.cancelText || '取消'}
               </button>
@@ -252,7 +241,7 @@ export const Overlays: React.FC = () => {
                   confirmDialog.onConfirm()
                   setConfirmDialog(null)
                 }}
-                className='flex-1 px-4 py-3 text-sm font-bold text-mac-blue transition-colors hover:bg-mac-blue/10 active:bg-mac-blue/20'
+                className='px-4 py-2 text-sm font-medium text-tg-blue rounded-lg hover:bg-tg-hover transition-colors uppercase'
               >
                 {confirmDialog.confirmText || '确定'}
               </button>
@@ -263,16 +252,16 @@ export const Overlays: React.FC = () => {
 
       {/* Alert Dialog */}
       {alertDialog && (
-        <div className='fixed inset-0 z-[111] flex items-center justify-center p-4 bg-black/40 backdrop-blur-[2px] animate-in fade-in duration-200'>
-          <div className={cn('w-full max-w-[320px] rounded-2xl shadow-2xl border animate-in zoom-in-95 duration-200 overflow-hidden', isDark ? 'bg-gray-800 border-gray-700' : 'bg-white border-mac-border')}>
-            <div className='p-6 pb-4 text-center'>
-              <h3 className={cn('text-lg font-semibold mb-2', isDark ? 'text-white' : 'text-gray-900')}>{alertDialog.title}</h3>
-              <p className={cn('text-sm leading-relaxed', isDark ? 'text-gray-400' : 'text-gray-500')}>{alertDialog.message}</p>
+        <div className='fixed inset-0 z-[111] flex items-center justify-center p-4 bg-black/40 animate-in fade-in duration-150'>
+          <div className='w-full max-w-[320px] rounded-2xl shadow-2xl bg-tg-bg animate-in zoom-in-95 duration-150 overflow-hidden'>
+            <div className='p-5 pb-3'>
+              <h3 className='text-base font-semibold mb-1.5'>{alertDialog.title}</h3>
+              <p className='text-sm text-tg-text-secondary leading-relaxed'>{alertDialog.message}</p>
             </div>
-            <div className={cn('flex border-t', isDark ? 'border-gray-700' : 'border-mac-border')}>
+            <div className='flex justify-end px-3 pb-3'>
               <button
                 onClick={() => setAlertDialog(null)}
-                className='w-full px-4 py-3 text-sm font-bold text-mac-blue transition-colors hover:bg-mac-blue/10 active:bg-mac-blue/20'
+                className='px-4 py-2 text-sm font-medium text-tg-blue rounded-lg hover:bg-tg-hover transition-colors uppercase'
               >
                 确定
               </button>

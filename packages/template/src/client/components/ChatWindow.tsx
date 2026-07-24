@@ -1,17 +1,17 @@
 import React, { useState } from 'react'
-import { Settings, Bot, Upload } from 'lucide-react'
+import { Bot, Upload, Info } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useChat } from '../ChatContext'
+import { useChat } from '../state/chat'
+import { useUi } from '../state/ui'
+import { cn } from '../utils'
 import { MessageList } from './MessageList'
 import { InputArea } from './InputArea'
 import { ChatDetailsSidebar } from './ChatDetailsSidebar'
 
-const cn = (...classes: (string | boolean | undefined)[]) => classes.filter(Boolean).join(' ')
-
 export const ChatWindow: React.FC = () => {
-  const { currentConversation, currentBot, setShowSettings, showSettings, actualTheme, handleFiles } = useChat()
+  const { currentConversation, currentBot, groupMembers, handleFiles } = useChat()
+  const { showSettings, setShowSettings } = useUi()
   const [isDragging, setIsDragging] = useState(false)
-  const isDark = actualTheme === 'dark'
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
@@ -37,15 +37,11 @@ export const ChatWindow: React.FC = () => {
 
   if (!currentBot) {
     return (
-      <div className={cn('flex-1 flex flex-col items-center justify-center p-8 text-center transition-colors duration-500',
-        isDark ? 'bg-gray-950' : 'bg-[#fafafa]')}
-      >
-        <div className={cn('w-32 h-32 rounded-[32px] shadow-[0_20px_50px_rgba(0,0,0,0.1)] flex items-center justify-center mb-10 border transition-all hover:scale-105',
-          isDark ? 'bg-gray-800 border-white/10' : 'bg-white border-white')}
-        >
-          <Bot className='w-16 h-16 text-mac-blue animate-pulse' />
+      <div className='flex-1 flex flex-col items-center justify-center p-8 text-center bg-tg-chat-bg'>
+        <div className='w-20 h-20 rounded-full bg-tg-blue/10 flex items-center justify-center mb-6'>
+          <Bot className='w-10 h-10 text-tg-blue' />
         </div>
-        <p className={cn('max-w-xs text-sm font-medium leading-relaxed mb-10', isDark ? 'text-gray-400' : 'text-gray-500')}>
+        <p className='max-w-xs text-sm text-tg-text-secondary leading-relaxed'>
           未检测到已连接的 Bot。请先在 Karin 中登录 Bot 账号。
         </p>
       </div>
@@ -54,22 +50,17 @@ export const ChatWindow: React.FC = () => {
 
   if (!currentConversation) {
     return (
-      <div className={cn('flex-1 flex flex-col items-center justify-center transition-colors duration-500',
-        isDark ? 'bg-gray-900' : 'bg-white')}
-      >
-        <div className='relative'>
-          <div className='absolute inset-0 bg-mac-blue blur-3xl opacity-10 animate-pulse' />
-          <Bot className={cn('w-40 h-40 mb-8 opacity-20 relative z-10', isDark ? 'text-white' : 'text-mac-blue')} />
-        </div>
-        <span className={cn('text-xl font-bold tracking-tight opacity-40', isDark ? 'text-white' : 'text-gray-900')}>
-          开启沟通之旅
+      <div className='flex-1 flex flex-col items-center justify-center bg-tg-chat-bg select-none'>
+        <span className='px-4 py-1.5 rounded-full bg-black/10 dark:bg-white/10 text-sm text-tg-text-secondary'>
+          选择一个会话开始聊天
         </span>
-        <p className={cn('text-xs font-medium mt-3 opacity-30', isDark ? 'text-gray-400' : 'text-gray-500')}>
-          在左侧列表中选择一个联系人开始聊天
-        </p>
       </div>
     )
   }
+
+  const subtitle = currentConversation.scene === 'group'
+    ? `${groupMembers.length > 0 ? `${groupMembers.length} 位成员` : '群聊'}`
+    : '私聊'
 
   return (
     <main
@@ -78,8 +69,7 @@ export const ChatWindow: React.FC = () => {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       onContextMenu={(e) => e.preventDefault()}
-      className={cn('flex-1 flex flex-col relative overflow-hidden transition-colors duration-300',
-        isDark ? 'bg-gray-900 text-gray-100' : 'bg-white')}
+      className='flex-1 flex flex-col relative overflow-hidden bg-tg-chat-bg'
     >
       <AnimatePresence>
         {isDragging && (
@@ -87,43 +77,36 @@ export const ChatWindow: React.FC = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className='absolute inset-0 z-[100] bg-mac-blue/10 backdrop-blur-[2px] border-2 border-dashed border-mac-blue m-4 rounded-3xl flex flex-col items-center justify-center pointer-events-none'
+            className='absolute inset-0 z-[100] bg-tg-blue/15 border-2 border-dashed border-tg-blue m-4 rounded-2xl flex flex-col items-center justify-center pointer-events-none'
           >
-            <div className='bg-mac-blue text-white p-4 rounded-2xl shadow-2xl mb-4'>
-              <Upload className='w-8 h-8 animate-bounce' />
+            <div className='bg-tg-blue text-white p-4 rounded-full shadow-xl mb-3'>
+              <Upload className='w-7 h-7' />
             </div>
-            <p className='text-mac-blue font-bold text-lg'>松开鼠标发送图片</p>
+            <p className='text-tg-blue font-medium'>松开鼠标发送文件</p>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <header className={cn('h-16 px-8 flex items-center justify-between border-b backdrop-blur-3xl sticky top-0 z-20 shrink-0',
-        isDark ? 'bg-gray-800/60 border-white/10' : 'bg-white/70 border-black/5')}
-      >
-        <div className='flex flex-col gap-0.5'>
-          <h2 className={cn('text-base font-black tracking-tight', isDark ? 'text-white' : 'text-gray-900')}>
+      {/* 顶栏 */}
+      <header className='h-14 px-4 flex items-center justify-between bg-tg-bg border-b border-tg-border shrink-0 z-20'>
+        <div className='flex flex-col min-w-0'>
+          <h2 className='text-sm font-semibold truncate leading-tight'>
             {currentConversation.name}
           </h2>
-          <div className='flex items-center gap-2'>
-            <div className='w-1.5 h-1.5 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' />
-            <span className={cn('text-[10px] font-bold opacity-50 uppercase tracking-widest',
-              isDark ? 'text-gray-300' : 'text-gray-500')}
-            >
-              {currentConversation.scene === 'friend' ? '私聊会话' : '群聊频道'}
-            </span>
-          </div>
+          <span className='text-xs text-tg-text-secondary leading-tight'>
+            {subtitle}
+          </span>
         </div>
-        <div className='flex items-center gap-5'>
-          <button
-            onClick={() => setShowSettings(!showSettings)}
-            className={cn('p-2.5 rounded-2xl transition-all duration-200 active:scale-90',
-              showSettings
-                ? (isDark ? 'bg-mac-blue text-white' : 'bg-mac-blue text-white shadow-lg shadow-mac-blue/20')
-                : (isDark ? 'hover:bg-white/10 text-gray-400 hover:text-white' : 'hover:bg-black/5 text-mac-text-secondary hover:text-mac-blue'))}
-          >
-            <Settings className='w-5 h-5' />
-          </button>
-        </div>
+        <button
+          onClick={() => setShowSettings(!showSettings)}
+          className={cn(
+            'p-2.5 rounded-full transition-colors shrink-0',
+            showSettings ? 'bg-tg-hover text-tg-blue' : 'text-tg-text-secondary hover:bg-tg-hover'
+          )}
+          title='会话资料'
+        >
+          <Info className='w-5 h-5' />
+        </button>
       </header>
 
       <div className='flex-1 overflow-hidden relative flex flex-col'>
@@ -137,7 +120,7 @@ export const ChatWindow: React.FC = () => {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onMouseDown={() => setShowSettings(false)}
-              className='absolute inset-0 bg-black/5 z-25'
+              className='absolute inset-0 bg-black/10 z-25'
             />
           )}
           {showSettings && (

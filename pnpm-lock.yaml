@@ -39,8 +39,8 @@ importers:
         specifier: 10.1.0
         version: 10.1.0
       node-karin:
-        specifier: 1.15.5
-        version: 1.15.5
+        specifier: 1.16.4
+        version: 1.16.4
       sandbox-template:
         specifier: workspace:*
         version: link:../template
@@ -539,6 +539,12 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@eslint-community/eslint-utils@4.10.1':
+    resolution: {integrity: sha512-cuadcxVFE8sDK6iWJbs8Sn0av2Nrh2QSGQhVlBW9AaAHqHwjWsZHT8LJ4hFGPh7ASBV2deFdM7H/DPjulmh8rg==}
+    engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
+    peerDependencies:
+      eslint: ^6.0.0 || ^7.0.0 || >=8.0.0
+
   '@eslint-community/eslint-utils@4.9.1':
     resolution: {integrity: sha512-phrYmNiYppR7znFEdqgfWHXR6NCkZEK7hwWDHZUjit/2/U0r6XvkDl0SYnoM51Hq7FhCGdLDT6zxCCOY1hexsQ==}
     engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
@@ -625,6 +631,10 @@ packages:
 
   '@karinjs/axios@1.13.2':
     resolution: {integrity: sha512-0nZq8H5cLorUw5X7uob/EOHnVcWot1ay3rZkh6PgvuZG2VccLKGCeCzoLtb1YJmWErh1BYJpnr1BDAoepkCEOA==}
+    engines: {node: '>=18'}
+
+  '@karinjs/dotenv@1.1.2':
+    resolution: {integrity: sha512-F1YCmSWxh3hvunVkxKco+4dsEL/DHqwuWVesB4M0fDh/sa/jhhQ6YrD3V03j0oTH9+jtszehTFEetcvjr8IH1g==}
     engines: {node: '>=18'}
 
   '@karinjs/express@1.0.3':
@@ -1953,8 +1963,8 @@ packages:
     resolution: {integrity: sha512-f7ccFPK3SXFHpx15UIGyRJ/FJQctuKZ0zVuN3frBo4HnK3cay9VEW0R6yPYFHC0AgqhukPzKjq22t5DmAyqGyw==}
     engines: {node: '>=16'}
 
-  flatted@3.4.2:
-    resolution: {integrity: sha512-PjDse7RzhcPkIJwy5t7KPWQSZ9cAbzQXcafsetQoD7sOJRQlGikNbx7yZp2OotDnJyrDcbyRq3Ttb18iYOqkxA==}
+  flatted@3.4.3:
+    resolution: {integrity: sha512-/zipXxyO6rGvuNGDiULY9MvEGSkb2gaG4GGH4ygMi0ZZzyMHdUZBmntJmx5x1G2VuPytCwGN4xsJP6cw+sK+vQ==}
 
   for-each@0.3.5:
     resolution: {integrity: sha512-dKx12eRCVIzqCxFGplyFKJMPvLEWgmNtUrpTiJIR5u97zEhRG8ySrtboPHZXx7daLxQVrl643cTzbab2tkQjxg==}
@@ -2485,8 +2495,8 @@ packages:
     resolution: {integrity: sha512-kXs9Go0cah0qHVV2v389IXQLdLCeE1xfFtjOAF+iobu0OIoG1pje8At2vMHyaPMiPMnG/LWP50twML21eMcAag==}
     engines: {node: '>= 0.4'}
 
-  node-karin@1.15.5:
-    resolution: {integrity: sha512-uTIvtBezdCfVwpt1GRoBNlC+PZi6p8mqMyFR+Ge/Tt4DC+h69toICq0kYbFqoqBoNLOkj1XmNqhUqJaeve2NmA==}
+  node-karin@1.16.4:
+    resolution: {integrity: sha512-8O0WGw/5ADdJ5HI5Dkia9CXyKyrfCMef9w/WtGNZyGH7N14rldzcxTqDai7syNtVkxgT+TDfMm0Dglib/o13ww==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -3476,6 +3486,11 @@ snapshots:
   '@esbuild/win32-x64@0.28.1':
     optional: true
 
+  '@eslint-community/eslint-utils@4.10.1(eslint@9.39.5(jiti@2.7.0))':
+    dependencies:
+      eslint: 9.39.5(jiti@2.7.0)
+      eslint-visitor-keys: 3.4.3
+
   '@eslint-community/eslint-utils@4.9.1(eslint@9.39.5(jiti@2.7.0))':
     dependencies:
       eslint: 9.39.5(jiti@2.7.0)
@@ -3573,6 +3588,8 @@ snapshots:
   '@karinjs/art-template@1.1.0': {}
 
   '@karinjs/axios@1.13.2': {}
+
+  '@karinjs/dotenv@1.1.2': {}
 
   '@karinjs/express@1.0.3': {}
 
@@ -4802,7 +4819,7 @@ snapshots:
 
   eslint@9.39.5(jiti@2.7.0):
     dependencies:
-      '@eslint-community/eslint-utils': 4.9.1(eslint@9.39.5(jiti@2.7.0))
+      '@eslint-community/eslint-utils': 4.10.1(eslint@9.39.5(jiti@2.7.0))
       '@eslint-community/regexpp': 4.12.2
       '@eslint/config-array': 0.21.2
       '@eslint/config-helpers': 0.4.2
@@ -4905,10 +4922,10 @@ snapshots:
 
   flat-cache@4.0.1:
     dependencies:
-      flatted: 3.4.2
+      flatted: 3.4.3
       keyv: 4.5.4
 
-  flatted@3.4.2: {}
+  flatted@3.4.3: {}
 
   for-each@0.3.5:
     dependencies:
@@ -5418,12 +5435,13 @@ snapshots:
       object.entries: 1.1.9
       semver: 6.3.1
 
-  node-karin@1.15.5:
+  node-karin@1.16.4:
     dependencies:
       art-template: '@karinjs/art-template@1.1.0'
       axios: '@karinjs/axios@1.13.2'
       chalk: 5.6.2
       chokidar: 4.0.3
+      dotenv: '@karinjs/dotenv@1.1.2'
       express: '@karinjs/express@1.0.3'
       jsonwebtoken: 9.0.3
       lodash: '@karinjs/lodash@1.1.1'

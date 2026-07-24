@@ -1,6 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
-
-const cn = (...classes: (string | boolean | undefined)[]) => classes.filter(Boolean).join(' ')
+import { cn } from '../utils'
 
 export interface ContextMenuItem {
   label: string
@@ -13,7 +12,6 @@ interface ContextMenuProps {
   x: number
   y: number
   items: ContextMenuItem[]
-  isDark: boolean
   onClose: () => void
 }
 
@@ -21,7 +19,7 @@ interface ContextMenuProps {
 const VIEWPORT_MARGIN = 8
 
 /** 通用右键菜单：坐标定位（贴视口边缘时自动翻转/收拢），点击外部 / Esc / 滚动关闭 */
-export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, items, isDark, onClose }) => {
+export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, items, onClose }) => {
   const menuRef = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ left: x, top: y })
 
@@ -60,8 +58,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, items, isDark, o
   return (
     <div
       ref={menuRef}
-      className={cn('fixed w-44 rounded-2xl shadow-2xl border p-1 animate-in fade-in zoom-in-95 duration-100 backdrop-blur-2xl z-[400]',
-        isDark ? 'bg-gray-800/80 border-white/10' : 'bg-white/80 border-black/5')}
+      className='fixed w-48 rounded-xl shadow-xl border border-tg-border bg-tg-bg p-1 animate-in fade-in zoom-in-95 duration-100 z-[400]'
       style={{ left: pos.left, top: pos.top }}
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
@@ -74,10 +71,10 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, items, isDark, o
             item.onClick()
           }}
           className={cn(
-            'w-full flex items-center gap-2.5 px-3 py-2 text-xs rounded-xl transition-colors',
+            'w-full flex items-center gap-3 px-3 py-2 text-sm rounded-lg transition-colors',
             item.danger
-              ? 'text-red-500 hover:bg-red-500 hover:text-white'
-              : (isDark ? 'hover:bg-mac-blue text-white' : 'hover:bg-mac-blue hover:text-white text-mac-text-main')
+              ? 'text-red-500 hover:bg-tg-hover'
+              : 'text-tg-text hover:bg-tg-hover'
           )}
         >
           {item.icon}

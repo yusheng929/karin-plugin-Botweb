@@ -8,6 +8,8 @@ export interface BotInfo {
   selfId: string
   name: string
   avatar: string
+  /** 适配器协议实现（icqq/napcat/llonebot 等，据此做 QQ 平台适配） */
+  protocol: string
 }
 
 /** 好友列表项 */

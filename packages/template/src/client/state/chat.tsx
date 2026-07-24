@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import {
   BotInfo,
   FriendItem,
@@ -7,10 +7,11 @@ import {
   MessageElement,
   ChatScene,
   ChatMessage
-} from '../core/types'
-import * as api from './api'
-import { wsClient } from './api'
-import { toMillis } from './utils'
+} from '../../core/types'
+import * as api from '../api'
+import { wsClient } from '../api'
+import { toMillis } from '../utils'
+import { useUi } from './ui'
 
 export interface Conversation {
   /** 会话 key：`${scene}:${peer}`（不含 selfId，均属于当前选中 bot） */
@@ -21,18 +22,6 @@ export interface Conversation {
   avatar?: string
   unreadCount: number
   lastMsg?: ChatMessage
-}
-
-export interface ContextMenuState {
-  x: number
-  y: number
-  /** avatar：消息发送者头像菜单；message：消息菜单；image：图片（lightbox）菜单；member：群资料页成员列表菜单 */
-  kind: 'avatar' | 'message' | 'image' | 'member'
-  msg?: ChatMessage
-  /** kind 为 image 时的图片地址 */
-  file?: string
-  /** kind 为 member 时的目标成员 */
-  member?: { userId: string, name: string }
 }
 
 interface ChatContextType {
@@ -57,32 +46,6 @@ interface ChatContextType {
   /** 面板戳一戳成功后的本地乐观上屏（系统灰条） */
   appendLocalPoke: (scene: ChatScene, peer: string, targetId: string) => void
   handleFiles: (files: FileList | null) => Promise<void>
-
-  // 回复 / 右键菜单 / @ 草稿 / 跳转高亮
-  replyTo: ChatMessage | null
-  setReplyTo: (v: ChatMessage | null) => void
-  contextMenu: ContextMenuState | null
-  setContextMenu: (v: ContextMenuState | null) => void
-  /** 待插入输入框的 @ 目标 userId，由 InputArea 消费后清空 */
-  pendingMention: string | null
-  setPendingMention: (v: string | null) => void
-  flashMessageId: string | null
-  flashMessage: (messageId: string) => void
-
-  // UI States
-  stagedImages: string[]
-  setStagedImages: (v: string[]) => void
-  showSettings: boolean
-  setShowSettings: (v: boolean) => void
-  toast: { message: string, type: 'success' | 'error' | 'info' } | null
-  setToast: (toast: string | { message: string, type: 'success' | 'error' | 'info' } | null) => void
-  alertDialog: { title: string, message: string } | null
-  setAlertDialog: (v: { title: string, message: string } | null) => void
-  confirmDialog: { title: string, message: string, onConfirm: () => void, confirmText?: string, cancelText?: string } | null
-  setConfirmDialog: (v: { title: string, message: string, onConfirm: () => void, confirmText?: string, cancelText?: string } | null) => void
-  theme: 'light' | 'dark' | 'system'
-  setTheme: (theme: 'light' | 'dark' | 'system') => void
-  actualTheme: 'light' | 'dark'
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined)
@@ -126,79 +89,129 @@ const loadMessageCache = (selfId: string): Record<string, ChatMessage[]> => {
   }
 }
 
+// ---------- messageMap reducer ----------
+
+type MessageMapState = Record<string, ChatMessage[]>
+
+type MessageMapAction =
+  /** 启动时合并 localStorage 缓存 */
+  | { type: 'merge', entries: MessageMapState }
+  /** WS 推送的消息：幂等去重 + 合并到仍在 sending 的本地乐观消息 */
+  | { type: 'receive', msg: ChatMessage }
+  /** 直接追加（戳一戳灰条 / 本地乐观消息） */
+  | { type: 'append', key: string, msg: ChatMessage }
+  /** 按 messageId 局部更新（发送状态推进等） */
+  | { type: 'update', key: string, messageId: string, updates: Partial<ChatMessage> }
+  /** 把指定消息替换为「xx 撤回了一条消息」系统灰条（幂等） */
+  | { type: 'recall', key: string, messageId: string, operatorId: string, operatorName: string }
+
+const messageMapReducer = (state: MessageMapState, action: MessageMapAction): MessageMapState => {
+  switch (action.type) {
+    case 'merge':
+      return { ...state, ...action.entries }
+    case 'receive': {
+      const { msg } = action
+      const key = fullKey(msg.selfId, msg.scene, msg.peer)
+      const list = state[key] || []
+      // 幂等：同 messageId 不重复入库（自己发送的消息会被后端再广播一次）
+      if (list.some(m => m.messageId === msg.messageId)) return state
+      // 广播先于 REST 响应到达时，合并到仍在 sending 的本地乐观消息上
+      if (msg.senderId === msg.selfId) {
+        const pending = list.find(m => m.status === 'sending' && JSON.stringify(m.elements) === JSON.stringify(msg.elements))
+        if (pending) {
+          return { ...state, [key]: list.map(m => (m === pending ? { ...msg, status: undefined } : m)) }
+        }
+      }
+      return { ...state, [key]: [...list, msg] }
+    }
+    case 'append':
+      return { ...state, [action.key]: [...(state[action.key] || []), action.msg] }
+    case 'update': {
+      const list = state[action.key]
+      if (!list) return state
+      return { ...state, [action.key]: list.map(m => (m.messageId === action.messageId ? { ...m, ...action.updates } : m)) }
+    }
+    case 'recall': {
+      const list = state[action.key]
+      if (!list) return state
+      const idx = list.findIndex(m => m.messageId === action.messageId)
+      if (idx === -1) return state
+      const msg = list[idx]
+      if (msg.system) return state
+      const sysMsg: ChatMessage = {
+        ...msg,
+        senderId: action.operatorId,
+        senderName: action.operatorName,
+        elements: [{ type: 'text', text: `${action.operatorName} 撤回了一条消息` }],
+        system: true,
+        recalled: true,
+        status: undefined
+      }
+      const next = [...list]
+      next[idx] = sysMsg
+      return { ...state, [action.key]: next }
+    }
+    default:
+      return state
+  }
+}
+
+// ---------- unreadByBot reducer ----------
+
+/** 各 bot 的未读：selfId -> 会话 key（`${scene}:${peer}`）-> 未读数 */
+type UnreadState = Record<string, Record<string, number>>
+
+type UnreadAction =
+  | { type: 'merge', entries: UnreadState }
+  | { type: 'increment', selfId: string, key: string }
+  | { type: 'clear', selfId: string, key: string }
+
+const unreadReducer = (state: UnreadState, action: UnreadAction): UnreadState => {
+  switch (action.type) {
+    case 'merge':
+      return { ...state, ...action.entries }
+    case 'increment':
+      return {
+        ...state,
+        [action.selfId]: {
+          ...state[action.selfId],
+          [action.key]: (state[action.selfId]?.[action.key] || 0) + 1
+        }
+      }
+    case 'clear':
+      return state[action.selfId]?.[action.key]
+        ? { ...state, [action.selfId]: { ...state[action.selfId], [action.key]: 0 } }
+        : state
+    default:
+      return state
+  }
+}
+
 export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const {
+    setToast, setReplyTo, setContextMenu, setShowSettings, setStagedImages
+  } = useUi()
+
   const [bots, setBots] = useState<BotInfo[]>([])
   const [currentBotId, setCurrentBotId] = useState<string | null>(null)
   const [friends, setFriends] = useState<FriendItem[]>([])
   const [groups, setGroups] = useState<GroupItem[]>([])
   /** 所有 bot 的消息，key 为 `${selfId}:${scene}:${peer}` */
-  const [messageMap, setMessageMap] = useState<Record<string, ChatMessage[]>>({})
+  const [messageMap, dispatchMessages] = useReducer(messageMapReducer, {})
   const [currentKey, setCurrentKey] = useState<string | null>(null)
-  /** 各 bot 的未读：selfId -> 会话 key（`${scene}:${peer}`） -> 未读数 */
-  const [unreadByBot, setUnreadByBot] = useState<Record<string, Record<string, number>>>({})
+  const [unreadByBot, dispatchUnread] = useReducer(unreadReducer, {})
   const [groupMembers, setGroupMembers] = useState<GroupMemberItem[]>([])
-
-  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
-  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
-  const [pendingMention, setPendingMention] = useState<string | null>(null)
-  const [flashMessageId, setFlashMessageId] = useState<string | null>(null)
-
-  const [stagedImages, setStagedImages] = useState<string[]>([])
-  const [showSettings, setShowSettings] = useState(false)
-  const [alertDialog, setAlertDialog] = useState<{ title: string, message: string } | null>(null)
-  const [confirmDialog, setConfirmDialog] = useState<{ title: string, message: string, onConfirm: () => void, confirmText?: string, cancelText?: string } | null>(null)
-  const [toast, _setToast] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null)
-
-  const [theme, setTheme] = useState<'light' | 'dark' | 'system'>(() => {
-    return (localStorage.getItem('theme') as 'light' | 'dark' | 'system') || 'system'
-  })
-  const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>('light')
-  const actualTheme = theme === 'system' ? systemTheme : theme
 
   const currentBot = useMemo(() => bots.find(b => b.selfId === currentBotId) || null, [bots, currentBotId])
 
   // WS 回调里需要读到最新的状态，使用 ref 避免重复订阅
   const currentBotRef = useRef<BotInfo | null>(null)
   currentBotRef.current = currentBot
-  const currentBotIdRef = useRef<string | null>(null)
-  currentBotIdRef.current = currentBotId
   const currentKeyRef = useRef<string | null>(null)
   currentKeyRef.current = currentKey
-  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const setToast = useCallback((val: string | { message: string, type: 'success' | 'error' | 'info' } | null) => {
-    if (typeof val === 'string') {
-      _setToast({ message: val, type: 'info' })
-    } else {
-      _setToast(val)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (toast) {
-      const timer = setTimeout(() => _setToast(null), 5000)
-      return () => clearTimeout(timer)
-    }
-  }, [toast])
-
-  useEffect(() => {
-    localStorage.setItem('theme', theme)
-  }, [theme])
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
-    setSystemTheme(mediaQuery.matches ? 'dark' : 'light')
-    const handler = (e: MediaQueryListEvent) => setSystemTheme(e.matches ? 'dark' : 'light')
-    mediaQuery.addEventListener('change', handler)
-    return () => mediaQuery.removeEventListener('change', handler)
-  }, [])
-
-  /** 回复跳转后的短暂高亮 */
-  const flashMessage = useCallback((messageId: string) => {
-    setFlashMessageId(messageId)
-    if (flashTimerRef.current) clearTimeout(flashTimerRef.current)
-    flashTimerRef.current = setTimeout(() => setFlashMessageId(null), 1600)
-  }, [])
+  // applyRecall 需要 messageMap 快照（解析操作者昵称时找原消息发送者）
+  const messageMapRef = useRef(messageMap)
+  messageMapRef.current = messageMap
 
   /** 解析用户显示名：bot 自己为「你」，其次好友备注/昵称、群名片/昵称，兜底 ID */
   const resolveName = useCallback((selfId: string, userId: string): string => {
@@ -223,29 +236,22 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setBots(list)
         if (list.length > 0) setCurrentBotId(list[0].selfId)
         // 恢复所有 bot 的本地消息缓存
-        setMessageMap(prev => {
-          const merged = { ...prev }
-          for (const bot of list) {
-            const cache = loadMessageCache(bot.selfId)
-            for (const key of Object.keys(cache)) {
-              merged[`${bot.selfId}:${key}`] = cache[key]
-            }
+        const msgEntries: MessageMapState = {}
+        const unreadEntries: UnreadState = {}
+        for (const bot of list) {
+          const cache = loadMessageCache(bot.selfId)
+          for (const key of Object.keys(cache)) {
+            msgEntries[`${bot.selfId}:${key}`] = cache[key]
           }
-          return merged
-        })
-        // 恢复所有 bot 的未读
-        setUnreadByBot(prev => {
-          const merged = { ...prev }
-          for (const bot of list) {
-            try {
-              const saved = localStorage.getItem(`botweb:unread:${bot.selfId}`)
-              merged[bot.selfId] = saved ? JSON.parse(saved) : {}
-            } catch (e) {
-              merged[bot.selfId] = {}
-            }
+          try {
+            const saved = localStorage.getItem(`botweb:unread:${bot.selfId}`)
+            unreadEntries[bot.selfId] = saved ? JSON.parse(saved) : {}
+          } catch (e) {
+            unreadEntries[bot.selfId] = {}
           }
-          return merged
-        })
+        }
+        dispatchMessages({ type: 'merge', entries: msgEntries })
+        dispatchUnread({ type: 'merge', entries: unreadEntries })
       })
       .catch(err => setToast({ message: `获取 Bot 列表失败: ${err.message}`, type: 'error' }))
   }, [setToast])
@@ -268,7 +274,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setGroups(groupList)
       })
       .catch(err => setToast({ message: `获取联系人失败: ${err.message}`, type: 'error' }))
-  }, [currentBotId, setToast])
+  }, [currentBotId, setToast, setReplyTo, setContextMenu, setShowSettings])
 
   // 消息缓存持久化：按消息所属 bot 分键写入（不管当前选中谁），配额满等异常静默失败
   useEffect(() => {
@@ -307,9 +313,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setGroupMembers([])
       return
     }
-    setUnreadByBot(prev => prev[currentBotId]?.[currentKey]
-      ? { ...prev, [currentBotId]: { ...prev[currentBotId], [currentKey]: 0 } }
-      : prev)
+    dispatchUnread({ type: 'clear', selfId: currentBotId, key: currentKey })
     const [scene, peer] = currentKey.split(':') as [ChatScene, string]
     if (scene === 'group') {
       api.getGroupMembers(currentBotId, peer)
@@ -344,36 +348,18 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return out
   }, [unreadByBot])
 
-  // ---------- 撤回灰条 ----------
+  // ---------- 撤回 / 戳一戳灰条 ----------
 
   /** 把指定消息替换为「xx 撤回了一条消息」系统灰条（幂等） */
   const applyRecall = useCallback((selfId: string, scene: ChatScene, peer: string, messageId: string, operatorId?: string) => {
     const key = fullKey(selfId, scene, peer)
-    setMessageMap(prev => {
-      const list = prev[key]
-      if (!list) return prev
-      const idx = list.findIndex(m => m.messageId === messageId)
-      if (idx === -1) return prev
-      const msg = list[idx]
-      if (msg.system) return prev
-      const operator = operatorId || msg.senderId
-      const name = resolveNameRef.current(selfId, operator)
-      const sysMsg: ChatMessage = {
-        ...msg,
-        senderId: operator,
-        senderName: name,
-        elements: [{ type: 'text', text: `${name} 撤回了一条消息` }],
-        system: true,
-        recalled: true,
-        status: undefined
-      }
-      const next = [...list]
-      next[idx] = sysMsg
-      return { ...prev, [key]: next }
-    })
+    // 操作者昵称需要当前快照解析，先按原消息发送者兜底（reducer 内再取不到列表则整体跳过）
+    const list = messageMapRef.current[key]
+    const msg = list?.find(m => m.messageId === messageId)
+    const operator = operatorId || msg?.senderId || ''
+    const name = resolveNameRef.current(selfId, operator)
+    dispatchMessages({ type: 'recall', key, messageId, operatorId: operator, operatorName: name })
   }, [])
-
-  // ---------- 戳一戳灰条 ----------
 
   /** 面板发起戳一戳的待回显计数（key: selfId:scene:peer:operatorId:targetId），协议端回显自己的戳一戳时按此去重 */
   const pendingPokeRef = useRef(new Map<string, { count: number, time: number }>())
@@ -395,8 +381,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       elements: [{ type: 'text', text }],
       system: true
     }
-    const key = fullKey(selfId, scene, peer)
-    setMessageMap(prev => ({ ...prev, [key]: [...(prev[key] || []), sysMsg] }))
+    dispatchMessages({ type: 'append', key: fullKey(selfId, scene, peer), msg: sysMsg })
   }, [])
 
   /** 面板戳一戳成功后的本地乐观上屏（多数协议端不回显自己的戳一戳 notice，收不到 WS 推送） */
@@ -416,36 +401,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const unbindMessage = wsClient.onMessage((msg) => {
       // 后端广播所有 bot 的消息，按各自 selfId 入库
-      const key = fullKey(msg.selfId, msg.scene, msg.peer)
-
-      setMessageMap(prev => {
-        const list = prev[key] || []
-        // 幂等：同 messageId 不重复入库（自己发送的消息会被后端再广播一次）
-        if (list.some(m => m.messageId === msg.messageId)) return prev
-        // 广播先于 REST 响应到达时，合并到仍在 sending 的本地乐观消息上
-        if (msg.senderId === msg.selfId) {
-          const pending = list.find(m => m.status === 'sending' && JSON.stringify(m.elements) === JSON.stringify(msg.elements))
-          if (pending) {
-            return {
-              ...prev,
-              [key]: list.map(m => m === pending ? { ...msg, status: undefined } : m)
-            }
-          }
-        }
-        return { ...prev, [key]: [...list, msg] }
-      })
+      dispatchMessages({ type: 'receive', msg })
 
       // 未读记到消息所属 bot 头上；正在看该会话（同 bot 同会话）则不计
       const shortKey = `${msg.scene}:${msg.peer}`
       const isViewing = msg.selfId === currentBotIdRef.current && currentKeyRef.current === shortKey
       if (msg.senderId !== msg.selfId && !isViewing) {
-        setUnreadByBot(prev => ({
-          ...prev,
-          [msg.selfId]: {
-            ...prev[msg.selfId],
-            [shortKey]: (prev[msg.selfId]?.[shortKey] || 0) + 1
-          }
-        }))
+        dispatchUnread({ type: 'increment', selfId: msg.selfId, key: shortKey })
       }
     })
 
@@ -548,16 +510,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setReplyTo(null)
     setContextMenu(null)
     setShowSettings(false)
-  }, [])
+  }, [setReplyTo, setContextMenu, setShowSettings])
 
   // ---------- 发送 / 撤回 ----------
 
   const updateMessage = useCallback((key: string, messageId: string, updates: Partial<ChatMessage>) => {
-    setMessageMap(prev => {
-      const list = prev[key]
-      if (!list) return prev
-      return { ...prev, [key]: list.map(m => m.messageId === messageId ? { ...m, ...updates } : m) }
-    })
+    dispatchMessages({ type: 'update', key, messageId, updates })
   }, [])
 
   const doSend = useCallback(async (scene: ChatScene, peer: string, elements: MessageElement[], localId?: string) => {
@@ -580,7 +538,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         elements,
         status: 'sending'
       }
-      setMessageMap(prev => ({ ...prev, [key]: [...(prev[key] || []), optimistic] }))
+      dispatchMessages({ type: 'append', key, msg: optimistic })
     } else {
       updateMessage(key, tempId, { status: 'sending' })
     }
@@ -664,7 +622,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setToast({ message: `发送失败: ${(err as Error).message}`, type: 'error' })
       }
     }
-  }, [doSend, setToast])
+  }, [doSend, setToast, setStagedImages])
 
   return (
     <ChatContext.Provider value={{
@@ -684,28 +642,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       resendMessage,
       recallMessage,
       appendLocalPoke,
-      handleFiles,
-      replyTo,
-      setReplyTo,
-      contextMenu,
-      setContextMenu,
-      pendingMention,
-      setPendingMention,
-      flashMessageId,
-      flashMessage,
-      stagedImages,
-      setStagedImages,
-      showSettings,
-      setShowSettings,
-      toast,
-      setToast,
-      alertDialog,
-      setAlertDialog,
-      confirmDialog,
-      setConfirmDialog,
-      theme,
-      setTheme,
-      actualTheme
+      handleFiles
     }}
     >
       {children}

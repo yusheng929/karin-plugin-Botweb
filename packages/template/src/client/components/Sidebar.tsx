@@ -1,257 +1,392 @@
-import React, { useState } from 'react'
+import React, { useMemo, useState } from 'react'
 import {
-  MessageSquare,
+  Menu,
   Bot,
+  Search,
   Sun,
   Moon,
-  Monitor
+  Monitor,
+  Check,
+  ChevronDown,
+  ArrowLeft,
+  UserRound,
+  Users,
+  Settings,
+  IdCard,
+  AtSign
 } from 'lucide-react'
-import { useChat, Conversation } from '../ChatContext'
-import { getMessageSummary, toMillis } from '../utils'
+import { motion, AnimatePresence } from 'framer-motion'
+import { useChat, Conversation } from '../state/chat'
+import { useUi } from '../state/ui'
+import { getMessageSummary, toMillis, cn } from '../utils'
 
-const cn = (...classes: (string | boolean | undefined)[]) => classes.filter(Boolean).join(' ')
+/** TG 风格头像底色板（按名字 hash 取色） */
+const AVATAR_COLORS = ['#cc5049', '#d67722', '#955cdb', '#40a920', '#309eba', '#368ad1', '#c7508b']
 
-/** 头像：有 url 用图片，否则用名称首字符圆形占位 */
-const Avatar: React.FC<{ url?: string, name: string, className?: string }> = ({ url, name, className }) => {
+const avatarColor = (name: string) => {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
+  return AVATAR_COLORS[h % AVATAR_COLORS.length]
+}
+
+/** 头像：有 url 用图片，否则用名称首字符圆形占位（TG 配色） */
+export const Avatar: React.FC<{ url?: string, name: string, className?: string }> = ({ url, name, className }) => {
   if (url) {
-    return <img src={url} alt={name} className={cn('object-cover', className)} />
+    return <img src={url} alt={name} referrerPolicy='no-referrer' className={cn('object-cover rounded-full', className)} />
   }
   return (
-    <div className={cn('bg-mac-blue/10 text-mac-blue flex items-center justify-center font-bold select-none', className)}>
+    <div
+      className={cn('rounded-full text-white flex items-center justify-center font-medium select-none', className)}
+      style={{ backgroundColor: avatarColor(name || '?') }}
+    >
       {(name || '?').charAt(0).toUpperCase()}
     </div>
   )
 }
 
-const NavItem: React.FC<{ active: boolean, onClick: () => void, children: React.ReactNode }> = ({ active, onClick, children }) => (
-  <div
-    onClick={onClick}
-    className={cn(
-      'w-9 h-9 rounded-xl flex items-center justify-center cursor-pointer transition-all duration-200',
-      active ? 'bg-mac-blue text-white shadow-[0_4px_12px_rgba(0,122,255,0.3)] scale-105' : 'text-mac-text-secondary hover:bg-black/5 hover:text-mac-text-main'
-    )}
-  >
-    {children}
-  </div>
-)
+/** 会话列表时间：今天显示 HH:MM，否则显示 M月d日 */
+const formatListTime = (time?: number) => {
+  if (!time) return ''
+  const d = new Date(toMillis(time))
+  const now = new Date()
+  const sameDay = d.toDateString() === now.toDateString()
+  return sameDay
+    ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : `${d.getMonth() + 1}月${d.getDate()}日`
+}
 
-export const Sidebar: React.FC = () => {
-  const {
-    bots, currentBot, selectBot,
-    conversations,
-    currentKey, openConversation,
-    botUnread,
-    theme, setTheme,
-    actualTheme
-  } = useChat()
+const THEME_OPTIONS = [
+  { value: 'light', label: '白天模式', icon: Sun },
+  { value: 'dark', label: '黑夜模式', icon: Moon },
+  { value: 'system', label: '跟随系统', icon: Monitor }
+] as const
 
-  const [showBotList, setShowBotList] = useState(false)
-  const isDark = actualTheme === 'dark'
+type DrawerView = 'menu' | 'profile' | 'contacts' | 'settings'
+
+/**
+ * TG 桌面版式左侧抽屉：蓝色头部（头像/昵称/ID，点击展开账号切换列表），
+ * 菜单项「我的资料 / 联系人 / 设置（占位）」与主题切换
+ */
+const DrawerMenu: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const { bots, currentBot, selectBot, botUnread, conversations, openConversation } = useChat()
+  const { theme, setTheme } = useUi()
+  const [view, setView] = useState<DrawerView>('menu')
+  const [showAccounts, setShowAccounts] = useState(false)
+  /** 联系人分组的折叠状态（默认展开） */
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+
+  const toggleSection = (key: string) => setCollapsed(prev => ({ ...prev, [key]: !prev[key] }))
+
+  /** 联系人视图：好友在前、群在后，各按名称排序 */
+  const contacts = useMemo(() => {
+    return [...conversations].sort((a, b) => {
+      if (a.scene !== b.scene) return a.scene === 'friend' ? -1 : 1
+      return a.name.localeCompare(b.name, 'zh-CN')
+    })
+  }, [conversations])
+
+  const menuItem = (icon: React.ReactNode, label: string, onClick: () => void) => (
+    <button
+      onClick={onClick}
+      className='w-full flex items-center gap-4 px-4 py-2.5 hover:bg-tg-hover transition-colors text-sm'
+    >
+      <span className='text-tg-text-secondary'>{icon}</span>
+      <span className='flex-1 text-left'>{label}</span>
+    </button>
+  )
+
+  const subViewHeader = (title: string) => (
+    <div className='h-14 px-2 flex items-center gap-2 border-b border-tg-border shrink-0'>
+      <button
+        onClick={() => setView('menu')}
+        className='p-2.5 rounded-full hover:bg-tg-hover transition-colors text-tg-text-secondary'
+        title='返回'
+      >
+        <ArrowLeft className='w-5 h-5' />
+      </button>
+      <h3 className='text-sm font-semibold'>{title}</h3>
+    </div>
+  )
 
   return (
     <>
-      {/* Left Nav Rail */}
-      <nav className={cn('w-[68px] flex flex-col items-center py-6 border-r gap-8 shrink-0 relative z-40 transition-colors duration-300',
-        isDark ? 'bg-gray-900 border-white/10' : 'bg-mac-sidebar border-black/5')}
+      {/* 遮罩 */}
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className='fixed inset-0 bg-black/30 z-40'
+      />
+      <motion.div
+        initial={{ x: '-100%' }}
+        animate={{ x: 0 }}
+        exit={{ x: '-100%' }}
+        transition={{ type: 'tween', duration: 0.2 }}
+        className='fixed left-0 top-0 bottom-0 w-[300px] bg-tg-bg shadow-2xl z-50 flex flex-col overflow-hidden'
       >
-        <div className='flex gap-2 mb-2'>
-          <div className='w-3 h-3 rounded-full bg-[#ff5f57] shadow-inner' />
-          <div className='w-3 h-3 rounded-full bg-[#febc2e] shadow-inner' />
-          <div className='w-3 h-3 rounded-full bg-[#28c840] shadow-inner' />
-        </div>
-        <div
-          onClick={(e) => {
-            e.stopPropagation()
-            if (bots.length > 1) setShowBotList(!showBotList)
-          }}
-          title={currentBot ? `${currentBot.name} (${currentBot.selfId})` : '未连接 Bot'}
-          className={cn(
-            'w-11 h-11 rounded-2xl border flex items-center justify-center text-xl mb-2 shadow-lg transition-all duration-300 overflow-hidden shrink-0 group',
-            bots.length > 1 && 'cursor-pointer hover:ring-2 hover:ring-mac-blue/50 hover:ring-offset-2',
-            isDark ? 'border-white/10 bg-gray-800' : 'border-white bg-white',
-            showBotList ? 'ring-2 ring-mac-blue ring-offset-2' : ''
-          )}
-        >
-          {currentBot?.avatar
-            ? (
-              <img
-                src={currentBot.avatar}
-                alt={currentBot.name}
-                className='w-full h-full object-cover transition-transform group-hover:scale-110'
-              />
-            )
-            : (
-              <Bot className='w-6 h-6 text-mac-text-secondary' />
-            )}
-        </div>
-        <div className='flex flex-col gap-4'>
-          <NavItem active onClick={() => setShowBotList(false)}>
-            <MessageSquare className='w-5 h-5' />
-          </NavItem>
-        </div>
-        <div className='mt-auto flex flex-col gap-3 mb-4'>
-          <button
-            onClick={() => setTheme('light')}
-            className={cn(
-              'p-2.5 rounded-xl transition-all duration-200',
-              theme === 'light' ? 'bg-mac-blue text-white shadow-md' : 'text-mac-text-secondary hover:bg-black/5'
-            )}
-            title='白天模式'
-          >
-            <Sun className='w-4.5 h-4.5' />
-          </button>
-          <button
-            onClick={() => setTheme('dark')}
-            className={cn(
-              'p-2.5 rounded-xl transition-all duration-200',
-              theme === 'dark' ? 'bg-mac-blue text-white shadow-md' : 'text-mac-text-secondary hover:bg-white/5'
-            )}
-            title='黑夜模式'
-          >
-            <Moon className='w-4.5 h-4.5' />
-          </button>
-          <button
-            onClick={() => setTheme('system')}
-            className={cn(
-              'p-2.5 rounded-xl transition-all duration-200',
-              theme === 'system' ? 'bg-mac-blue text-white shadow-md' : 'text-mac-text-secondary hover:bg-black/5'
-            )}
-            title='跟随系统'
-          >
-            <Monitor className='w-4.5 h-4.5' />
-          </button>
-        </div>
-      </nav>
-
-      {/* Bot List Sidebar（多个 bot 时可切换） */}
-      {showBotList && bots.length > 1 && (
-        <div
-          className={cn('w-[78px] border-r flex flex-col items-center py-6 gap-5 animate-in slide-in-from-left-4 duration-300 shrink-0 z-30 backdrop-blur-3xl shadow-2xl',
-            isDark ? 'bg-gray-800/80 border-white/10' : 'bg-white/70 border-black/5')}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className='px-2 text-[10px] font-black uppercase tracking-widest text-mac-text-secondary opacity-40 mb-1'>Bot</div>
-          <div className='flex flex-col gap-4 w-full items-center overflow-y-auto no-scrollbar pb-6'>
-            {bots.map((b) => {
-              const unread = b.selfId !== currentBot?.selfId ? (botUnread[b.selfId] || 0) : 0
-              return (
-                <div
-                  key={b.selfId}
-                  className='relative group cursor-pointer'
-                  title={`${b.name} (${b.selfId})`}
-                  onClick={() => {
-                    selectBot(b.selfId)
-                    setShowBotList(false)
-                  }}
-                >
-                  <div className={cn(
-                    'w-13 h-13 rounded-2xl overflow-hidden border-2 transition-all duration-300 shadow-md',
-                    currentBot?.selfId === b.selfId
-                      ? 'border-mac-blue scale-110 shadow-mac-blue/20'
-                      : 'border-white/20 group-hover:border-mac-blue/50 group-hover:scale-105'
-                  )}
-                  >
-                    {b.avatar
-                      ? <img src={b.avatar} alt={b.name} className='w-full h-full object-cover' />
-                      : (
-                        <div className='w-full h-full bg-mac-blue/10 flex items-center justify-center'>
-                          <Bot className='w-6 h-6 text-mac-blue' />
-                        </div>
-                      )}
-                  </div>
-                  {currentBot?.selfId === b.selfId && (
-                    <div className='absolute -bottom-1 -right-1 w-5 h-5 bg-mac-blue rounded-full border-[3px] border-white flex items-center justify-center shadow-lg'>
-                      <div className='w-1.5 h-1.5 bg-white rounded-full' />
-                    </div>
-                  )}
-                  {unread > 0 && (
-                    <div className='absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[9px] min-w-[18px] h-[18px] rounded-full flex items-center justify-center px-1 font-black shadow-lg shadow-red-500/20 border-2 border-white animate-in zoom-in'>
-                      {unread > 99 ? '99+' : unread}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Sidebar List */}
-      <aside className={cn('w-[280px] flex flex-col border-r shrink-0 transition-all duration-300 relative z-20',
-        isDark ? 'bg-gray-800/90 border-white/10' : 'bg-[#f6f6f6]/95 border-black/5')}
-      >
-        <div className='p-6 pb-2'>
-          <div className='flex items-center justify-between mb-4'>
-            <h2 className={cn('text-xl font-bold tracking-tight', isDark ? 'text-white' : 'text-gray-900')}>消息</h2>
-          </div>
-        </div>
-        <div className='flex-1 overflow-y-auto px-3 space-y-1.5 pb-6'>
-          {conversations.length === 0 && (
-            <div className='flex flex-col items-center justify-center h-40 opacity-30 select-none'>
-              <div className='w-12 h-12 rounded-2xl border-2 border-dashed flex items-center justify-center mb-2'>
-                <Bot className='w-6 h-6' />
-              </div>
-              <p className='text-xs font-bold'>{currentBot ? '暂无联系人' : '未连接 Bot'}</p>
-            </div>
-          )}
-          {conversations.map((conv: Conversation) => {
-            const lastTime = conv.lastMsg ? new Date(toMillis(conv.lastMsg.time)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''
-            const isActive = currentKey === conv.key
-
-            return (
+        {view === 'menu' && (
+          <>
+            {/* 蓝色头部：头像 / 昵称 / ID，点击展开账号列表 */}
+            <div className='bg-tg-blue text-white shrink-0'>
               <div
-                key={conv.key}
-                onClick={(e) => {
-                  e.preventDefault()
-                  e.stopPropagation()
-                  openConversation(conv.key)
-                }}
-                className={cn(
-                  'px-3.5 py-3 rounded-2xl flex items-center gap-3.5 cursor-pointer transition-all duration-200 group relative',
-                  isActive
-                    ? 'bg-mac-blue text-white shadow-[0_8px_20px_-5px_rgba(0,122,255,0.4)] z-10'
-                    : isDark ? 'hover:bg-white/5 active:bg-white/10' : 'hover:bg-white shadow-sm hover:shadow-md active:scale-[0.98]'
-                )}
+                onClick={() => setShowAccounts(!showAccounts)}
+                className='px-4 pt-5 pb-4 cursor-pointer hover:bg-white/5 transition-colors'
+                title='切换账号'
               >
-                <div className='relative w-11 h-11 rounded-[14px] overflow-hidden shrink-0 shadow-sm transition-transform group-hover:scale-105'>
-                  <Avatar url={conv.avatar} name={conv.name} className='w-full h-full text-lg' />
+                <div className='flex items-start justify-between'>
+                  <Avatar url={currentBot?.avatar} name={currentBot?.name || '?'} className='w-14 h-14 text-xl ring-2 ring-white/30' />
+                  <ChevronDown className={cn('w-5 h-5 mt-1 transition-transform text-white/80', showAccounts && 'rotate-180')} />
                 </div>
-                <div className='min-w-0 flex-1 py-0.5'>
-                  <div className='flex justify-between items-center mb-1'>
-                    <span className={cn(
-                      'text-sm font-bold truncate tracking-tight',
-                      isActive ? 'text-white' : (isDark ? 'text-gray-100' : 'text-mac-text-main')
-                    )}
-                    >{conv.name}
-                    </span>
-                    <span className={cn(
-                      'text-[10px] font-medium shrink-0',
-                      isActive ? 'text-white/70' : (isDark ? 'text-gray-500' : 'text-mac-text-secondary')
-                    )}
-                    >{lastTime}
-                    </span>
+                <div className='mt-3 text-sm font-medium truncate'>{currentBot?.name || '未连接 Bot'}</div>
+                <div className='text-xs text-white/70 truncate'>{currentBot?.selfId}</div>
+              </div>
+
+              {/* 账号切换列表（在头部下方展开） */}
+              <AnimatePresence>
+                {showAccounts && bots.length > 0 && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className='overflow-hidden bg-tg-bg text-tg-text'
+                  >
+                    {bots.map((b) => {
+                      const isCurrent = b.selfId === currentBot?.selfId
+                      const unread = !isCurrent ? (botUnread[b.selfId] || 0) : 0
+                      return (
+                        <button
+                          key={b.selfId}
+                          onClick={() => {
+                            if (!isCurrent) selectBot(b.selfId)
+                            onClose()
+                          }}
+                          className='w-full flex items-center gap-3 px-4 py-2.5 hover:bg-tg-hover transition-colors'
+                        >
+                          <Avatar url={b.avatar} name={b.name} className='w-9 h-9 text-sm' />
+                          <span className='flex-1 min-w-0 text-left'>
+                            <span className='block text-sm truncate'>{b.name}</span>
+                            <span className='block text-xs text-tg-text-secondary truncate'>{b.selfId}</span>
+                          </span>
+                          {unread > 0 && (
+                            <span className='bg-tg-badge text-white text-[11px] min-w-[20px] h-5 rounded-full flex items-center justify-center px-1.5 font-medium'>
+                              {unread > 99 ? '99+' : unread}
+                            </span>
+                          )}
+                          {isCurrent && <Check className='w-4 h-4 text-tg-blue shrink-0' />}
+                        </button>
+                      )
+                    })}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+
+            {/* 菜单项 */}
+            <div className='py-1.5'>
+              {menuItem(<UserRound className='w-5 h-5' />, '我的资料', () => setView('profile'))}
+              {menuItem(<Users className='w-5 h-5' />, '联系人', () => setView('contacts'))}
+              {menuItem(<Settings className='w-5 h-5' />, '设置', () => setView('settings'))}
+            </div>
+
+            <div className='border-t border-tg-border my-1' />
+
+            {/* 主题 */}
+            <div className='py-1.5'>
+              {THEME_OPTIONS.map(({ value, label, icon: Icon }) => (
+                <button
+                  key={value}
+                  onClick={() => setTheme(value)}
+                  className='w-full flex items-center gap-4 px-4 py-2.5 hover:bg-tg-hover transition-colors text-sm'
+                >
+                  <Icon className='w-5 h-5 text-tg-text-secondary' />
+                  <span className='flex-1 text-left'>{label}</span>
+                  {theme === value && <Check className='w-4 h-4 text-tg-blue' />}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        {view === 'profile' && currentBot && (
+          <>
+            {subViewHeader('我的资料')}
+            <div className='flex-1 overflow-y-auto'>
+              <div className='flex flex-col items-center pt-8 pb-6 px-4'>
+                <Avatar url={currentBot.avatar} name={currentBot.name} className='w-28 h-28 text-4xl shadow-sm mb-4' />
+                <h4 className='text-lg font-semibold text-center truncate max-w-full'>{currentBot.name}</h4>
+              </div>
+              <div className='border-t border-tg-border'>
+                <div className='flex items-center gap-4 px-4 py-3'>
+                  <IdCard className='w-5 h-5 text-tg-text-secondary shrink-0' />
+                  <div className='min-w-0'>
+                    <div className='text-sm truncate'>{currentBot.selfId}</div>
+                    <div className='text-xs text-tg-text-secondary'>ID</div>
                   </div>
-                  <div className='flex items-center gap-2'>
-                    <p className={cn(
-                      'text-[11px] truncate flex-1 font-medium',
-                      isActive ? 'text-white/80' : (isDark ? 'text-gray-400' : 'text-mac-text-secondary')
+                </div>
+                <div className='flex items-center gap-4 px-4 py-3'>
+                  <AtSign className='w-5 h-5 text-tg-text-secondary shrink-0' />
+                  <div className='min-w-0'>
+                    <div className='text-sm truncate'>{currentBot.name}</div>
+                    <div className='text-xs text-tg-text-secondary'>昵称</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {view === 'contacts' && (
+          <>
+            {subViewHeader('联系人')}
+            <div className='flex-1 overflow-y-auto py-1.5'>
+              {contacts.length === 0 && (
+                <div className='px-4 py-8 text-center text-sm text-tg-text-secondary'>暂无联系人</div>
+              )}
+              {(['friend', 'group'] as const).map((scene) => {
+                const list = contacts.filter(c => c.scene === scene)
+                if (list.length === 0) return null
+                const isCollapsed = !!collapsed[scene]
+                return (
+                  <div key={scene}>
+                    <button
+                      onClick={() => toggleSection(scene)}
+                      className='w-full flex items-center gap-1.5 px-4 pt-3 pb-1 text-xs font-medium text-tg-blue hover:opacity-80 transition-opacity'
+                    >
+                      <ChevronDown className={cn('w-3.5 h-3.5 transition-transform', isCollapsed && '-rotate-90')} />
+                      {scene === 'friend' ? '好友' : '群组'}
+                      <span className='text-tg-text-secondary font-normal'>{list.length}</span>
+                    </button>
+                    {!isCollapsed && list.map((conv) => (
+                      <button
+                        key={conv.key}
+                        onClick={() => {
+                          openConversation(conv.key)
+                          onClose()
+                        }}
+                        className='w-full flex items-center gap-3 px-4 py-2 hover:bg-tg-hover transition-colors'
+                      >
+                        <Avatar url={conv.avatar} name={conv.name} className='w-10 h-10 text-base shrink-0' />
+                        <span className='flex-1 min-w-0 text-left'>
+                          <span className='block text-sm truncate'>{conv.name}</span>
+                          <span className='block text-xs text-tg-text-secondary truncate'>
+                            {conv.scene === 'group' ? `群号: ${conv.peer}` : `账号: ${conv.peer}`}
+                          </span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )
+              })}
+            </div>
+          </>
+        )}
+
+        {view === 'settings' && (
+          <>
+            {subViewHeader('设置')}
+            <div className='flex-1 flex flex-col items-center justify-center text-tg-text-secondary select-none'>
+              <Settings className='w-10 h-10 mb-3 opacity-30' />
+              <p className='text-sm'>设置功能开发中</p>
+            </div>
+          </>
+        )}
+      </motion.div>
+    </>
+  )
+}
+
+export const Sidebar: React.FC = () => {
+  const {
+    currentBot,
+    conversations,
+    currentKey, openConversation
+  } = useChat()
+
+  const [showMenu, setShowMenu] = useState(false)
+  const [search, setSearch] = useState('')
+
+  const filtered = useMemo(() => {
+    const kw = search.trim().toLowerCase()
+    if (!kw) return conversations
+    return conversations.filter(c => c.name.toLowerCase().includes(kw) || c.peer.toLowerCase().includes(kw))
+  }, [conversations, search])
+
+  return (
+    <aside className='w-[320px] flex flex-col border-r border-tg-border bg-tg-sidebar shrink-0 relative z-30'>
+      {/* 顶部：菜单 + 搜索 */}
+      <div className='flex items-center gap-2 px-3 py-2.5 shrink-0'>
+        <button
+          onClick={() => setShowMenu(true)}
+          className='p-2.5 rounded-full hover:bg-tg-hover transition-colors text-tg-text-secondary shrink-0'
+          title='菜单'
+        >
+          <Menu className='w-5 h-5' />
+        </button>
+        <div className='relative flex-1'>
+          <Search className='absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-tg-text-secondary pointer-events-none' />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder='搜索'
+            className='w-full h-10 pl-9 pr-3 rounded-full bg-tg-hover text-sm outline-none placeholder:text-tg-text-secondary focus:ring-2 focus:ring-tg-blue/40 transition-shadow'
+          />
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {showMenu && <DrawerMenu onClose={() => setShowMenu(false)} />}
+      </AnimatePresence>
+
+      {/* 会话列表 */}
+      <div className='flex-1 overflow-y-auto px-2 pb-2'>
+        {filtered.length === 0 && (
+          <div className='flex flex-col items-center justify-center h-40 text-tg-text-secondary select-none'>
+            <Bot className='w-8 h-8 mb-2 opacity-40' />
+            <p className='text-sm'>{currentBot ? (search ? '无匹配会话' : '暂无联系人') : '未连接 Bot'}</p>
+          </div>
+        )}
+        {filtered.map((conv: Conversation) => {
+          const isActive = currentKey === conv.key
+          return (
+            <div
+              key={conv.key}
+              onClick={() => openConversation(conv.key)}
+              className={cn(
+                'px-2.5 py-2 rounded-xl flex items-center gap-3 cursor-pointer transition-colors',
+                isActive ? 'bg-tg-active text-white' : 'hover:bg-tg-hover'
+              )}
+            >
+              <Avatar url={conv.avatar} name={conv.name} className='w-12 h-12 text-lg shrink-0' />
+              <div className='min-w-0 flex-1'>
+                <div className='flex justify-between items-baseline gap-2'>
+                  <span className={cn('text-sm font-medium truncate', isActive ? 'text-white' : 'text-tg-text')}>
+                    {conv.name}
+                  </span>
+                  <span className={cn('text-xs shrink-0', isActive ? 'text-white/70' : 'text-tg-text-secondary')}>
+                    {formatListTime(conv.lastMsg?.time)}
+                  </span>
+                </div>
+                <div className='flex items-center gap-2 mt-0.5'>
+                  <p className={cn('text-[13px] truncate flex-1', isActive ? 'text-white/80' : 'text-tg-text-secondary')}>
+                    {conv.lastMsg?.recalled && <span className='opacity-70'>[已撤回] </span>}
+                    {getMessageSummary(conv.lastMsg?.elements)}
+                  </p>
+                  {conv.unreadCount > 0 && (
+                    <span className={cn(
+                      'text-[11px] min-w-[20px] h-5 rounded-full flex items-center justify-center px-1.5 font-medium shrink-0',
+                      isActive ? 'bg-white text-tg-blue' : 'bg-tg-badge text-white'
                     )}
                     >
-                      {getMessageSummary(conv.lastMsg?.elements)}
-                      {conv.lastMsg?.recalled && <span className='ml-1 opacity-70'>[已撤回]</span>}
-                    </p>
-                    {conv.unreadCount > 0 && (
-                      <div className='bg-red-500 text-white text-[9px] min-w-[16px] h-4 rounded-full flex items-center justify-center px-1 font-black shadow-lg shadow-red-500/20 animate-in zoom-in'>
-                        {conv.unreadCount > 99 ? '99+' : conv.unreadCount}
-                      </div>
-                    )}
-                  </div>
+                      {conv.unreadCount > 99 ? '99+' : conv.unreadCount}
+                    </span>
+                  )}
                 </div>
               </div>
-            )
-          })}
-        </div>
-      </aside>
-    </>
+            </div>
+          )
+        })}
+      </div>
+    </aside>
   )
 }

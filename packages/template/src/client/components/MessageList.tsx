@@ -1,10 +1,29 @@
 import React, { useEffect, useLayoutEffect, useRef } from 'react'
-import { useChat } from '../ChatContext'
+import { useChat } from '../state/chat'
 import { toMillis } from '../utils'
 import { MessageItem } from './MessageItem'
 
 /** 距底部多少像素内视为「贴底」，贴底时内容增高会自动跟随 */
 const STICK_THRESHOLD = 80
+
+/** 同发送者连续消息归为一组的时间窗口 */
+const GROUP_WINDOW = 300_000
+
+const isSameDay = (a: number, b: number) => new Date(a).toDateString() === new Date(b).toDateString()
+
+/** 日期分隔胶囊文本 */
+const formatDateDivider = (time: number) => {
+  const d = new Date(toMillis(time))
+  const now = new Date()
+  if (d.toDateString() === now.toDateString()) return '今天'
+  const yesterday = new Date(now)
+  yesterday.setDate(now.getDate() - 1)
+  if (d.toDateString() === yesterday.toDateString()) return '昨天'
+  const sameYear = d.getFullYear() === now.getFullYear()
+  return sameYear
+    ? `${d.getMonth() + 1}月${d.getDate()}日`
+    : `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`
+}
 
 export const MessageList: React.FC = () => {
   const { messages, currentBot, currentKey } = useChat()
@@ -46,21 +65,43 @@ export const MessageList: React.FC = () => {
     return () => observer.disconnect()
   }, [])
 
+  /** 相邻两条是否属于同一连续消息组（同发送者、时间接近、均非系统消息、未跨天） */
+  const sameGroup = (a?: (typeof messages)[number], b?: (typeof messages)[number]) => {
+    if (!a || !b) return false
+    if (a.system || b.system) return false
+    if (a.senderId !== b.senderId) return false
+    const ta = toMillis(a.time)
+    const tb = toMillis(b.time)
+    return Math.abs(tb - ta) <= GROUP_WINDOW && isSameDay(ta, tb)
+  }
+
   return (
-    <div ref={scrollRef} onScroll={handleScroll} className='flex-1 overflow-y-auto p-6'>
-      <div ref={contentRef} className='flex flex-col gap-8'>
+    <div ref={scrollRef} onScroll={handleScroll} className='flex-1 overflow-y-auto px-4 py-4'>
+      <div ref={contentRef} className='flex flex-col'>
         {messages.map((m, index) => {
-          const isMe = !!currentBot && m.senderId === currentBot.selfId
           const prevMsg = messages[index - 1]
-          const showTime = !prevMsg || (toMillis(m.time) - toMillis(prevMsg.time)) > 600_000
+          const nextMsg = messages[index + 1]
+          const dayChanged = !prevMsg || !isSameDay(toMillis(prevMsg.time), toMillis(m.time))
+          const isMe = !!currentBot && m.senderId === currentBot.selfId
+          const groupStart = dayChanged || !sameGroup(prevMsg, m)
+          const groupEnd = !sameGroup(m, nextMsg)
 
           return (
-            <MessageItem
-              key={m.messageId || index}
-              message={m}
-              isMe={isMe}
-              showTime={showTime}
-            />
+            <React.Fragment key={m.messageId || index}>
+              {dayChanged && (
+                <div className='flex justify-center my-3'>
+                  <span className='px-3 py-1 rounded-full bg-black/20 dark:bg-white/10 text-white dark:text-tg-text-secondary text-xs select-none'>
+                    {formatDateDivider(m.time)}
+                  </span>
+                </div>
+              )}
+              <MessageItem
+                message={m}
+                isMe={isMe}
+                groupStart={groupStart}
+                groupEnd={groupEnd}
+              />
+            </React.Fragment>
           )
         })}
       </div>

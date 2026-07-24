@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './client/App'
-import { ChatProvider } from './client/ChatContext'
+import { ChatProvider } from './client/state/chat'
+import { UiProvider } from './client/state/ui'
 import { LoginScreen } from './client/components/LoginScreen'
 import { isLoggedIn, onAuthChange } from './client/auth'
 import './index.css'
@@ -17,9 +18,11 @@ const Root: React.FC = () => {
 
   return authed
     ? (
-      <ChatProvider>
-        <App />
-      </ChatProvider>
+      <UiProvider>
+        <ChatProvider>
+          <App />
+        </ChatProvider>
+      </UiProvider>
       )
     : <LoginScreen />
 }

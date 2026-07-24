@@ -9,6 +9,8 @@ export interface BotInfo {
   selfId: string
   name: string
   avatar: string
+  /** 适配器协议实现（icqq/napcat/llonebot 等，前端据此做 QQ 平台适配） */
+  protocol: string
 }
 
 export interface FriendItem {
@@ -62,7 +64,8 @@ export interface ChatMessage {
 export const toBotInfo = (bot: AdapterType): BotInfo => ({
   selfId: bot.selfId,
   name: bot.account?.name || bot.selfName || bot.selfId,
-  avatar: bot.account?.avatar || ''
+  avatar: bot.account?.avatar || '',
+  protocol: bot.adapter.protocol
 })
 
 /** 好友信息 -> FriendItem */
