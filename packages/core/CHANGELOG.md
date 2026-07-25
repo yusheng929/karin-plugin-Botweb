@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.0.5](https://github.com/yusheng929/karin-plugin-botweb/compare/core-v1.0.4...core-v1.0.5) (2026-07-25)
+
+
+### 🐛 错误修复
+
+* 消息存储本地，优化ui ([b8a4884](https://github.com/yusheng929/karin-plugin-botweb/commit/b8a48849f4a6ce76286f7f3fdf6f1a5bf7e3b754))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * devDependencies
+    * sandbox-template bumped to 1.0.5
+
 ## [1.0.4](https://github.com/yusheng929/karin-plugin-botweb/compare/core-v1.0.3...core-v1.0.4) (2026-07-24)
 
 
