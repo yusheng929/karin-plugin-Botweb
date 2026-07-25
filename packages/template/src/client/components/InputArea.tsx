@@ -5,7 +5,9 @@ import {
   AtSign,
   Reply,
   X,
-  Send
+  Send,
+  Image as ImageIcon,
+  File as FileIcon
 } from 'lucide-react'
 import { useChat } from '../state/chat'
 import { useUi } from '../state/ui'
@@ -13,24 +15,35 @@ import { MessageElement } from '../../core/types'
 import { getMessageSummary, isQQProtocol, qqFaceGif, qqFacePng, cn } from '../utils'
 import { getCachedFaceSrc } from '../faceCache'
 import { EmojiPicker } from './EmojiPicker'
+import { Avatar } from './Avatar'
+
+/** 内联图片的大小上限（与 chat.tsx 的文件发送上限一致，base64 内联发送，过大会撑爆请求） */
+const MAX_FILE_SIZE = 20 * 1024 * 1024
 
 export const InputArea: React.FC = () => {
-  const { currentBot, currentConversation, sendMessage, handleFiles, groupMembers } = useChat()
-  const { stagedImages, setStagedImages, replyTo, setReplyTo, pendingMention, setPendingMention } = useUi()
+  const { currentBot, currentConversation, sendMessage, handleFiles, groupMembers, resolveAvatar } = useChat()
+  const { replyTo, setReplyTo, pendingMention, setPendingMention, pendingImages, setPendingImages, setToast } = useUi()
   /** 编辑器是否为空（驱动发送按钮禁用态，contenteditable 为非受控组件，需手动同步） */
   const [isEmpty, setIsEmpty] = useState(true)
   const [atMenu, setAtMenu] = useState<{ filter: string } | null>(null)
   const [showEmoji, setShowEmoji] = useState(false)
+  /** 附件小菜单（图片/文件，TG 风格） */
+  const [showAttach, setShowAttach] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  /** 文件选择器的打开来源：image=图片（内联进输入框）/ file=文件（直接发送） */
+  const fileModeRef = useRef<'image' | 'file'>('file')
+  /** 编辑器内联图片的 dataURL 表：imageId -> dataURL（img 标签只挂 id，发送时按 id 取回） */
+  const pendingImagesRef = useRef(new Map<string, string>())
+  const imgSeqRef = useRef(0)
   const editorRef = useRef<HTMLDivElement>(null)
 
   const isGroup = currentConversation?.scene === 'group'
   /** 当前 bot 为 QQ 协议实现时支持发送 QQ 小黄脸 */
   const isQQ = isQQProtocol(currentBot?.protocol)
 
-  // 输入内容或图片为空时禁用
-  const isDisabled = !currentConversation || (isEmpty && stagedImages.length === 0)
+  // 输入内容（文本/表情/内联图片）为空时禁用
+  const isDisabled = !currentConversation || isEmpty
 
   const members = isGroup ? groupMembers : []
   const filteredMembers = [
@@ -51,10 +64,19 @@ export const InputArea: React.FC = () => {
     setSelectedIndex(0)
   }, [atMenu?.filter])
 
-  // 切换会话：清空编辑器、收起 emoji 面板和 @ 菜单（依赖会话 key 而非对象：消息到达会使会话对象重建，但 key 不变）
+  // 附件菜单：点击其他位置关闭
+  useEffect(() => {
+    if (!showAttach) return
+    const close = () => setShowAttach(false)
+    window.addEventListener('click', close)
+    return () => window.removeEventListener('click', close)
+  }, [showAttach])
+
+  // 切换会话：清空编辑器与内联图片、收起 emoji 面板和 @ 菜单（依赖会话 key 而非对象：消息到达会使会话对象重建，但 key 不变）
   const conversationKey = currentConversation?.key
   useEffect(() => {
     if (editorRef.current) editorRef.current.innerHTML = ''
+    pendingImagesRef.current.clear()
     setIsEmpty(true)
     setShowEmoji(false)
     setAtMenu(null)
@@ -67,12 +89,19 @@ export const InputArea: React.FC = () => {
     setPendingMention(null)
   }, [pendingMention, setPendingMention])
 
+  // 拖拽进窗口的图片：内联进输入框（与文本混排）
+  useEffect(() => {
+    if (!pendingImages || pendingImages.length === 0) return
+    for (const file of pendingImages) insertImageFile(file)
+    setPendingImages(null)
+  }, [pendingImages, setPendingImages])
+
   const memberName = (userId: string) => {
     const member = groupMembers.find(m => String(m.userId) === String(userId))
     return member ? (member.card || member.nick) : undefined
   }
 
-  /** 同步空态（文本为空且没有内联表情图即为空） */
+  /** 同步空态（文本为空且没有内联表情/图片即为空） */
   const syncEmpty = () => {
     const editor = editorRef.current
     if (!editor) return
@@ -134,7 +163,33 @@ export const InputArea: React.FC = () => {
     })()
   }
 
-  /** 把编辑器内容解析为元素序列（text 与 face 按出现顺序交替） */
+  /** 图片文件内联进输入框（图文混排，发送时按出现顺序解析为 text/image 元素序列） */
+  const insertImageFile = (file: File) => {
+    void (async () => {
+      if (file.size > MAX_FILE_SIZE) {
+        setToast({ message: `图片「${file.name}」超过 20MB，无法发送`, type: 'error' })
+        return
+      }
+      const dataUrl = await new Promise<string | null>((resolve) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result as string)
+        reader.onerror = () => resolve(null)
+        reader.readAsDataURL(file)
+      })
+      if (!dataUrl) return
+      const id = `img-${Date.now()}-${imgSeqRef.current++}`
+      pendingImagesRef.current.set(id, dataUrl)
+      const img = document.createElement('img')
+      img.src = dataUrl
+      img.dataset.imageId = id
+      img.alt = file.name
+      img.draggable = false
+      img.className = 'rich-image'
+      insertNode(img)
+    })()
+  }
+
+  /** 把编辑器内容解析为元素序列（text 与 face/image 按出现顺序交替） */
   const parseEditor = (): MessageElement[] => {
     const root = editorRef.current
     if (!root) return []
@@ -152,6 +207,13 @@ export const InputArea: React.FC = () => {
       } else if (node instanceof HTMLImageElement && node.dataset.faceId) {
         flush()
         elements.push({ type: 'face', id: Number(node.dataset.faceId) })
+      } else if (node instanceof HTMLImageElement && node.dataset.imageId) {
+        // 内联图片：dataURL 存 pendingImagesRef（避免把大体积 base64 塞进 DOM 属性）
+        const dataUrl = pendingImagesRef.current.get(node.dataset.imageId)
+        if (dataUrl) {
+          flush()
+          elements.push({ type: 'image', file: dataUrl })
+        }
       } else if (node instanceof HTMLBRElement) {
         textBuf += '\n'
       } else {
@@ -187,7 +249,7 @@ export const InputArea: React.FC = () => {
   const handleSend = () => {
     if (isDisabled || !currentConversation) return
 
-    // 编辑器内容（text/face 混排）解析后再拆 @；回复元素放头部，图片追加在尾部
+    // 编辑器内容（text/face/image 混排）解析后再拆 @；回复元素放头部
     const content: MessageElement[] = []
     for (const el of parseEditor()) {
       if (el.type === 'text') content.push(...splitMentions(el.text))
@@ -195,16 +257,15 @@ export const InputArea: React.FC = () => {
     }
     const finalContent: MessageElement[] = [
       ...replyTo ? [{ type: 'reply' as const, messageId: replyTo.messageId }] : [],
-      ...content,
-      ...stagedImages.map(dataUrl => ({ type: 'image' as const, file: dataUrl }))
+      ...content
     ]
 
     if (finalContent.length === 0) return
 
     // 点击发送立即清空输入；发送结果由消息的 status（sending/failed）和 toast 体现
     if (editorRef.current) editorRef.current.innerHTML = ''
+    pendingImagesRef.current.clear()
     setIsEmpty(true)
-    setStagedImages([])
     setReplyTo(null)
     setShowEmoji(false)
     void sendMessage(finalContent)
@@ -270,7 +331,11 @@ export const InputArea: React.FC = () => {
   const handlePaste = (e: React.ClipboardEvent) => {
     if (e.clipboardData.files && e.clipboardData.files.length > 0) {
       e.preventDefault()
-      handleFiles(e.clipboardData.files)
+      const files = Array.from(e.clipboardData.files)
+      // 图片内联进输入框（与文本混排，可直接配文字），其他文件直接发送
+      for (const file of files.filter(f => f.type.startsWith('image/'))) insertImageFile(file)
+      const others = files.filter(f => !f.type.startsWith('image/'))
+      if (others.length > 0) void handleFiles(others)
       return
     }
     // 只粘贴纯文本，避免把富文本/HTML 带进编辑器
@@ -304,6 +369,16 @@ export const InputArea: React.FC = () => {
     }
   }
 
+  /** 打开文件选择器（image=图片内联进输入框，file=文件直接发送） */
+  const pickFiles = (mode: 'image' | 'file') => {
+    setShowAttach(false)
+    fileModeRef.current = mode
+    if (fileInputRef.current) {
+      fileInputRef.current.accept = mode === 'image' ? 'image/*' : '*/*'
+      fileInputRef.current.click()
+    }
+  }
+
   return (
     <footer className='px-4 pb-3 pt-1 shrink-0 relative bg-tg-chat-bg'>
       {/* Emoji 面板 */}
@@ -332,11 +407,10 @@ export const InputArea: React.FC = () => {
                   idx === selectedIndex ? 'bg-tg-hover' : ''
                 )}
               >
-                <img
-                  src={`https://q.qlogo.cn/g?b=qq&nk=${member.userId}&s=100`}
-                  alt=''
-                  referrerPolicy='no-referrer'
-                  className='w-7 h-7 rounded-full shrink-0'
+                <Avatar
+                  url={resolveAvatar(member.userId)}
+                  name={('card' in member && member.card) || member.nick || member.userId}
+                  className='w-7 h-7 text-xs shrink-0'
                 />
                 <div className='flex-1 min-w-0'>
                   <div className='text-sm truncate'>{('card' in member && member.card) || member.nick || member.userId}</div>
@@ -348,20 +422,24 @@ export const InputArea: React.FC = () => {
         </div>
       )}
 
-      {/* 待发送图片预览 */}
-      {stagedImages.length > 0 && (
-        <div className='flex flex-wrap gap-2 px-1 pb-2'>
-          {stagedImages.map((src, idx) => (
-            <div key={idx} className='relative group w-20 h-20 rounded-lg overflow-hidden shadow-sm'>
-              <img src={src} alt='' className='w-full h-full object-cover' />
-              <button
-                onClick={() => setStagedImages(stagedImages.filter((_, i) => i !== idx))}
-                className='absolute top-1 right-1 p-1 bg-black/50 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity'
-              >
-                <X className='w-3 h-3' />
-              </button>
-            </div>
-          ))}
+      {/* 附件菜单（TG 风格：图片内联进输入框，文件直接发送） */}
+      {showAttach && (
+        <div
+          className='absolute bottom-full mb-2 left-4 w-44 rounded-xl shadow-xl border border-tg-border bg-tg-bg z-50 p-1.5 animate-in fade-in slide-in-from-bottom-2 duration-150'
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            onClick={() => pickFiles('image')}
+            className='w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-tg-text hover:bg-tg-hover transition-colors'
+          >
+            <ImageIcon className='w-4 h-4 text-tg-text-secondary' /> 图片
+          </button>
+          <button
+            onClick={() => pickFiles('file')}
+            className='w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-tg-text hover:bg-tg-hover transition-colors'
+          >
+            <FileIcon className='w-4 h-4 text-tg-text-secondary' /> 文件
+          </button>
         </div>
       )}
 
@@ -388,18 +466,20 @@ export const InputArea: React.FC = () => {
 
           <div className='flex items-end'>
             <button
-              onClick={() => {
-                if (fileInputRef.current) {
-                  fileInputRef.current.accept = '*/*'
-                  fileInputRef.current.click()
-                }
+              onClick={(e) => {
+                e.stopPropagation()
+                setAtMenu(null)
+                setShowAttach(!showAttach)
               }}
-              className='p-3 text-tg-text-secondary hover:text-tg-blue transition-colors shrink-0'
-              title='发送文件'
+              className={cn(
+                'p-3 transition-colors shrink-0',
+                showAttach ? 'text-tg-blue' : 'text-tg-text-secondary hover:text-tg-blue'
+              )}
+              title='附件'
             >
               <Paperclip className='w-6 h-6' />
             </button>
-            {/* 富文本输入框：QQ 小黄脸以内联图片形式与文本混排（发送时解析为 text/face 元素序列） */}
+            {/* 富文本输入框：QQ 表情/图片以内联图片形式与文本混排（发送时解析为 text/face/image 元素序列） */}
             <div
               ref={editorRef}
               contentEditable={!!currentConversation}
@@ -432,8 +512,19 @@ export const InputArea: React.FC = () => {
               className='hidden'
               multiple
               onChange={(e) => {
-                handleFiles(e.target.files)
+                // 先拷贝成数组再清空 input：input.files 的 FileList 是活动的，清空 value 后已捕获的 FileList 会变空
+                const files = Array.from(e.target.files || [])
                 e.target.value = ''
+                if (files.length === 0) return
+                // image 模式只内联图片文件（用户可能改选其他类型，非图片走直发兜底）
+                if (fileModeRef.current === 'image') {
+                  for (const file of files) {
+                    if (file.type.startsWith('image/')) insertImageFile(file)
+                    else void handleFiles([file])
+                  }
+                } else {
+                  void handleFiles(files)
+                }
               }}
             />
           </div>

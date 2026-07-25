@@ -2,6 +2,7 @@ import karin, { SendMsgResults } from 'node-karin'
 import { BotService } from './bot'
 import { RecallMessageType, SendMessageType } from './types'
 import { toSendElements } from './dto'
+import { messageDb } from './db'
 import { ApiResult } from '@/types'
 import { fail, ok } from './response'
 
@@ -12,7 +13,20 @@ export const MessageService = {
     if (!bot) return fail('Bot不存在')
     try {
       const contact = data.scene === 'group' ? karin.contactGroup(data.peer) : karin.contactFriend(data.peer)
-      return ok(await bot.sendMsg(contact, toSendElements(data.elements)))
+      const result = await bot.sendMsg(contact, toSendElements(data.elements))
+      // 持久化发送的消息（INSERT OR IGNORE：多数协议端会回显 message 事件，回显到达时不重复）
+      void messageDb.insert({
+        messageId: result.messageId,
+        seq: 0,
+        selfId: data.selfId,
+        scene: data.scene,
+        peer: data.peer,
+        senderId: data.selfId,
+        senderName: bot.account?.name || bot.selfName || data.selfId,
+        time: result.time,
+        elements: data.elements
+      }).catch(() => {})
+      return ok(result)
     } catch (err) {
       return fail(err instanceof Error ? err.message : '消息发送错误')
     }
@@ -25,15 +39,11 @@ export const MessageService = {
     try {
       const contact = data.scene === 'group' ? karin.contactGroup(data.peer) : karin.contactFriend(data.peer)
       await bot.recallMsg(contact, data.messageId)
+      // 面板主动撤回不一定有 notice 回显，这里直接标记 db（WS recall 推送到达时幂等跳过）
+      void messageDb.markRecalled(data.selfId, data.scene, data.peer, data.messageId).catch(() => {})
       return ok(null)
     } catch (err) {
       return fail(err instanceof Error ? err.message : '消息撤回失败')
     }
   }
 }
-
-/**
- * 注意：本期不提供历史消息接口。
- * karin 的 `bot.getHistoryMsg` 依赖协议端实现，各协议（OneBot/QQBot/微信等）差异很大，
- * 聊天窗口目前只展示实时消息（WS 推送 + 自己发送的），后续如需历史消息再按协议评估。
- */

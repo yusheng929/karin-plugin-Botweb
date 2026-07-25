@@ -20,7 +20,7 @@ export default defineConfig({
   platform: 'node',
   outDir: './lib',
   deps: {
-    neverBundle: [/^node-karin/],
+    neverBundle: [/^node-karin/, '@karinjs/sqlite3'],
     alwaysBundle: ['sandbox-template']
   }
 })

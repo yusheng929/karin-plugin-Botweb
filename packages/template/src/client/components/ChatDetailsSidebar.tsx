@@ -2,10 +2,10 @@ import React, { useEffect, useState } from 'react'
 import { ChevronLeft, ChevronRight, Users } from 'lucide-react'
 import { useChat } from '../state/chat'
 import { useUi } from '../state/ui'
-import { getAvatarUrl } from '../utils'
+import { Avatar } from './Avatar'
 
 export const ChatDetailsSidebar: React.FC = () => {
-  const { currentConversation, groupMembers } = useChat()
+  const { currentConversation, groupMembers, resolveAvatar } = useChat()
   const { setContextMenu } = useUi()
 
   const [showMembers, setShowMembers] = useState(false)
@@ -20,7 +20,6 @@ export const ChatDetailsSidebar: React.FC = () => {
 
   const isGroup = currentConversation.scene === 'group'
   const displayId = currentConversation.peer
-  const avatarUrl = currentConversation.avatar || getAvatarUrl(isGroup ? 'group' : 'private', displayId)
 
   const members = [...groupMembers].sort((a, b) => {
     const priority: Record<string, number> = { owner: 1, admin: 2, member: 3, unknown: 4 }
@@ -80,11 +79,10 @@ export const ChatDetailsSidebar: React.FC = () => {
                 onContextMenu={(e) => openMemberMenu(e, member)}
                 className='flex items-center gap-3 px-4 py-2 hover:bg-tg-hover transition-colors cursor-default'
               >
-                <img
-                  src={`https://q.qlogo.cn/g?b=qq&nk=${member.userId}&s=100`}
-                  alt=''
-                  referrerPolicy='no-referrer'
-                  className='w-10 h-10 rounded-full object-cover shrink-0'
+                <Avatar
+                  url={resolveAvatar(member.userId)}
+                  name={member.card || member.nick || member.userId}
+                  className='w-10 h-10 text-base shrink-0'
                 />
                 <div className='flex-1 min-w-0 text-left'>
                   <div className='text-sm truncate'>
@@ -101,16 +99,15 @@ export const ChatDetailsSidebar: React.FC = () => {
               <div className='px-4 py-8 text-center text-sm text-tg-text-secondary'>暂无成员数据</div>
             )}
           </div>
-          )
+        )
         : (
           <div className='flex-1 overflow-y-auto'>
-            {/* 大头像 + 名称 */}
+            {/* 大头像 + 名称（头像来自会话资料，后端协议端提供；缺失用字母占位） */}
             <div className='flex flex-col items-center pt-8 pb-6 px-4'>
-              <img
-                src={avatarUrl}
-                alt='avatar'
-                referrerPolicy='no-referrer'
-                className='w-28 h-28 rounded-full object-cover shadow-sm mb-4'
+              <Avatar
+                url={currentConversation.avatar}
+                name={currentConversation.name}
+                className='w-28 h-28 text-4xl shadow-sm mb-4'
               />
               <h4 className='text-lg font-semibold text-center truncate max-w-full'>
                 {currentConversation.name}
@@ -135,7 +132,7 @@ export const ChatDetailsSidebar: React.FC = () => {
               </button>
             )}
           </div>
-          )}
+        )}
     </div>
   )
 }

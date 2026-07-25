@@ -28,6 +28,10 @@ importers:
         version: 6.0.3
 
   packages/core:
+    dependencies:
+      '@karinjs/sqlite3':
+        specifier: ^0.4.3
+        version: 0.4.3
     devDependencies:
       '@karinjs/adapter-qqbot':
         specifier: ^2.2.1

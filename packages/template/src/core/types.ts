@@ -36,6 +36,12 @@ export interface GroupMemberItem {
   role: 'owner' | 'admin' | 'member' | 'unknown'
 }
 
+/** 用户头像增量项（profiles 推送的 users 字段，头像统一由后端协议端 getAvatarUrl 提供） */
+export interface UserAvatarItem {
+  userId: string
+  avatar: string
+}
+
 /** 消息元素（客户端与后端 DTO 共用，未知类型降级为 other） */
 export type MessageElement =
   | { type: 'text', text: string }
@@ -111,5 +117,19 @@ export type WsPush =
       action: string
       /** 后缀文案 */
       suffix: string
+    }
+  }
+  /**
+   * 会话资料增量（收到消息时后端异步补全的头像/名称）。
+   * 主要服务 qqbot 等没有好友/群列表接口的协议端：前端 upsert 进
+   * friends/groups 状态后，临时会话即可显示真实名称与头像
+   */
+  | {
+    type: 'profiles', data: {
+      selfId: string
+      friends: FriendItem[]
+      groups: GroupItem[]
+      /** 群消息发送者头像增量（进 avatarMap 用于气泡头像，不进好友列表） */
+      users: UserAvatarItem[]
     }
   }

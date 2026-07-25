@@ -32,7 +32,7 @@ interface ChatContextType {
   currentKey: string | null
   currentConversation: Conversation | null
   openConversation: (key: string | null) => void
-  /** 当前会话的消息（本地缓存 + 页面打开后累积的实时消息 + 自己发送的） */
+  /** 当前会话的消息（启动时从后端 db 全量拉取 + 页面打开后累积的实时消息 + 自己发送的，只存内存） */
   messages: ChatMessage[]
   groupMembers: GroupMemberItem[]
   refreshGroupMembers: () => void
@@ -40,12 +40,14 @@ interface ChatContextType {
   botGroupRole: 'owner' | 'admin' | 'member' | 'unknown' | null
   /** 各 bot 的未读总数（用于 bot 选择器角标） */
   botUnread: Record<string, number>
+  /** 当前 bot 的用户头像（后端协议端 getAvatarUrl 提供并带 db 缓存；未命中返回 undefined，调用方用字母占位兜底） */
+  resolveAvatar: (userId: string) => string | undefined
   sendMessage: (elements: MessageElement[]) => Promise<void>
   resendMessage: (messageId: string) => Promise<void>
   recallMessage: (msg: ChatMessage) => Promise<void>
   /** 面板戳一戳成功后的本地乐观上屏（系统灰条） */
   appendLocalPoke: (scene: ChatScene, peer: string, targetId: string) => void
-  handleFiles: (files: FileList | null) => Promise<void>
+  handleFiles: (files: FileList | File[] | null) => Promise<void>
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined)
@@ -53,48 +55,15 @@ const ChatContext = createContext<ChatContextType | undefined>(undefined)
 /** 消息在 messageMap 中的完整 key：`${selfId}:${scene}:${peer}`（消息属于哪个 bot 就入哪个 bot 的库） */
 const fullKey = (selfId: string, scene: ChatScene, peer: string) => `${selfId}:${scene}:${peer}`
 
-/** 每个会话最多缓存的消息条数 */
-const MAX_CACHED_MESSAGES = 100
-
 /** 发送文件的大小上限（base64 内联发送，过大会撑爆请求） */
 const MAX_FILE_SIZE = 20 * 1024 * 1024
-
-const MEDIA_PLACEHOLDER: Record<string, string> = {
-  image: '[图片]',
-  file: '[文件]',
-  video: '[视频]',
-  record: '[语音]'
-}
-
-/**
- * 写入缓存前瘦身：本地 base64 媒体（data: 开头）体积太大，
- * 替换为占位元素，避免撑爆 localStorage 配额；网络 url 原样保留
- */
-const sanitizeForCache = (msgs: ChatMessage[]): ChatMessage[] =>
-  msgs.slice(-MAX_CACHED_MESSAGES).map(m => ({
-    ...m,
-    elements: m.elements.map(el =>
-      'file' in el && el.file.startsWith('data:') && MEDIA_PLACEHOLDER[el.type]
-        ? { type: 'other' as const, text: MEDIA_PLACEHOLDER[el.type] }
-        : el
-    )
-  }))
-
-const loadMessageCache = (selfId: string): Record<string, ChatMessage[]> => {
-  try {
-    const saved = localStorage.getItem(`botweb:msgs:${selfId}`)
-    return saved ? JSON.parse(saved) : {}
-  } catch (e) {
-    return {}
-  }
-}
 
 // ---------- messageMap reducer ----------
 
 type MessageMapState = Record<string, ChatMessage[]>
 
 type MessageMapAction =
-  /** 启动时合并 localStorage 缓存 */
+  /** 启动时合并后端拉取的历史消息（按 key 合并 + messageId 去重 + 时间升序，不覆盖已到达的实时消息） */
   | { type: 'merge', entries: MessageMapState }
   /** WS 推送的消息：幂等去重 + 合并到仍在 sending 的本地乐观消息 */
   | { type: 'receive', msg: ChatMessage }
@@ -102,13 +71,25 @@ type MessageMapAction =
   | { type: 'append', key: string, msg: ChatMessage }
   /** 按 messageId 局部更新（发送状态推进等） */
   | { type: 'update', key: string, messageId: string, updates: Partial<ChatMessage> }
-  /** 把指定消息替换为「xx 撤回了一条消息」系统灰条（幂等） */
-  | { type: 'recall', key: string, messageId: string, operatorId: string, operatorName: string }
+  /** 给指定消息打已撤回标记（气泡红框 + 「消息已撤回」，幂等） */
+  | { type: 'recall', key: string, messageId: string }
 
 const messageMapReducer = (state: MessageMapState, action: MessageMapAction): MessageMapState => {
   switch (action.type) {
-    case 'merge':
-      return { ...state, ...action.entries }
+    case 'merge': {
+      const next = { ...state }
+      for (const key of Object.keys(action.entries)) {
+        const seen = new Set<string>()
+        next[key] = [...(next[key] || []), ...action.entries[key]]
+          .filter(m => {
+            if (seen.has(m.messageId)) return false
+            seen.add(m.messageId)
+            return true
+          })
+          .sort((a, b) => toMillis(a.time) - toMillis(b.time))
+      }
+      return next
+    }
     case 'receive': {
       const { msg } = action
       const key = fullKey(msg.selfId, msg.scene, msg.peer)
@@ -137,18 +118,9 @@ const messageMapReducer = (state: MessageMapState, action: MessageMapAction): Me
       const idx = list.findIndex(m => m.messageId === action.messageId)
       if (idx === -1) return state
       const msg = list[idx]
-      if (msg.system) return state
-      const sysMsg: ChatMessage = {
-        ...msg,
-        senderId: action.operatorId,
-        senderName: action.operatorName,
-        elements: [{ type: 'text', text: `${action.operatorName} 撤回了一条消息` }],
-        system: true,
-        recalled: true,
-        status: undefined
-      }
+      if (msg.recalled || msg.system) return state
       const next = [...list]
-      next[idx] = sysMsg
+      next[idx] = { ...msg, recalled: true, status: undefined }
       return { ...state, [action.key]: next }
     }
     default:
@@ -189,7 +161,7 @@ const unreadReducer = (state: UnreadState, action: UnreadAction): UnreadState =>
 
 export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const {
-    setToast, setReplyTo, setContextMenu, setShowSettings, setStagedImages
+    setToast, setReplyTo, setContextMenu, setShowSettings
   } = useUi()
 
   const [bots, setBots] = useState<BotInfo[]>([])
@@ -201,6 +173,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [currentKey, setCurrentKey] = useState<string | null>(null)
   const [unreadByBot, dispatchUnread] = useReducer(unreadReducer, {})
   const [groupMembers, setGroupMembers] = useState<GroupMemberItem[]>([])
+  /** 用户头像表：`${selfId}:${userId}` -> url（来源：profiles 推送增量 + avatars 接口补拉，均为后端协议端 getAvatarUrl） */
+  const [avatarMap, setAvatarMap] = useState<Record<string, string>>({})
 
   const currentBot = useMemo(() => bots.find(b => b.selfId === currentBotId) || null, [bots, currentBotId])
 
@@ -209,9 +183,28 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   currentBotRef.current = currentBot
   const currentKeyRef = useRef<string | null>(null)
   currentKeyRef.current = currentKey
-  // applyRecall 需要 messageMap 快照（解析操作者昵称时找原消息发送者）
-  const messageMapRef = useRef(messageMap)
-  messageMapRef.current = messageMap
+  // 头像补拉 effect 里读最新 avatarMap，避免把它列为依赖造成循环
+  const avatarMapRef = useRef(avatarMap)
+  avatarMapRef.current = avatarMap
+  /** 已请求过头像的 key：后端拿不到 url 的 ID 不重复打接口 */
+  const requestedAvatarsRef = useRef(new Set<string>())
+
+  /** 合并头像增量进 avatarMap */
+  const mergeAvatars = useCallback((selfId: string, entries: Array<[string, string]>) => {
+    setAvatarMap(prev => {
+      const next = { ...prev }
+      for (const [userId, avatar] of entries) {
+        if (avatar) next[`${selfId}:${userId}`] = avatar
+      }
+      return next
+    })
+  }, [])
+
+  /** 当前 bot 的用户头像（未命中返回 undefined，组件用字母占位兜底） */
+  const resolveAvatar = useCallback((userId: string): string | undefined => {
+    const bot = currentBotRef.current
+    return bot ? avatarMap[`${bot.selfId}:${userId}`] : undefined
+  }, [avatarMap])
 
   /** 解析用户显示名：bot 自己为「你」，其次好友备注/昵称、群名片/昵称，兜底 ID */
   const resolveName = useCallback((selfId: string, userId: string): string => {
@@ -235,14 +228,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .then(list => {
         setBots(list)
         if (list.length > 0) setCurrentBotId(list[0].selfId)
-        // 恢复所有 bot 的本地消息缓存
-        const msgEntries: MessageMapState = {}
+        // 恢复所有 bot 的未读缓存（消息本身走后端 db 持久化，见下方 getMessages 拉取）
         const unreadEntries: UnreadState = {}
         for (const bot of list) {
-          const cache = loadMessageCache(bot.selfId)
-          for (const key of Object.keys(cache)) {
-            msgEntries[`${bot.selfId}:${key}`] = cache[key]
-          }
           try {
             const saved = localStorage.getItem(`botweb:unread:${bot.selfId}`)
             unreadEntries[bot.selfId] = saved ? JSON.parse(saved) : {}
@@ -250,8 +238,21 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             unreadEntries[bot.selfId] = {}
           }
         }
-        dispatchMessages({ type: 'merge', entries: msgEntries })
         dispatchUnread({ type: 'merge', entries: unreadEntries })
+        // 拉取各 bot 的本地存储消息（只存内存，关闭/刷新后重新拉取）；单个 bot 失败不影响其他
+        for (const bot of list) {
+          api.getMessages(bot.selfId)
+            .then(msgs => {
+              const entries: MessageMapState = {}
+              for (const msg of msgs) {
+                const key = fullKey(msg.selfId, msg.scene, msg.peer)
+                if (!entries[key]) entries[key] = []
+                entries[key].push(msg)
+              }
+              dispatchMessages({ type: 'merge', entries })
+            })
+            .catch(err => setToast({ message: `拉取历史消息失败: ${err.message}`, type: 'error' }))
+        }
       })
       .catch(err => setToast({ message: `获取 Bot 列表失败: ${err.message}`, type: 'error' }))
   }, [setToast])
@@ -260,7 +261,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setCurrentBotId(selfId)
   }, [])
 
-  // 切换 bot：重置会话相关状态，重新拉取好友/群列表（消息缓存全 bot 常驻内存，无需切换）
+  // 切换 bot：重置会话相关状态，重新拉取好友/群列表（消息全 bot 常驻内存，无需切换）
   useEffect(() => {
     if (!currentBotId) return
     setCurrentKey(null)
@@ -275,28 +276,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       })
       .catch(err => setToast({ message: `获取联系人失败: ${err.message}`, type: 'error' }))
   }, [currentBotId, setToast, setReplyTo, setContextMenu, setShowSettings])
-
-  // 消息缓存持久化：按消息所属 bot 分键写入（不管当前选中谁），配额满等异常静默失败
-  useEffect(() => {
-    const byBot: Record<string, Record<string, ChatMessage[]>> = {}
-    for (const key of Object.keys(messageMap)) {
-      const sep = key.indexOf(':')
-      if (sep === -1 || !messageMap[key]?.length) continue
-      const selfId = key.slice(0, sep)
-      const shortKey = key.slice(sep + 1)
-      if (!byBot[selfId]) byBot[selfId] = {}
-      byBot[selfId][shortKey] = messageMap[key]
-    }
-    for (const selfId of Object.keys(byBot)) {
-      try {
-        const out: Record<string, ChatMessage[]> = {}
-        for (const shortKey of Object.keys(byBot[selfId])) {
-          out[shortKey] = sanitizeForCache(byBot[selfId][shortKey])
-        }
-        localStorage.setItem(`botweb:msgs:${selfId}`, JSON.stringify(out))
-      } catch (e) { /* ignore */ }
-    }
-  }, [messageMap])
 
   // 未读持久化（按 bot 存到 localStorage）
   useEffect(() => {
@@ -348,17 +327,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return out
   }, [unreadByBot])
 
-  // ---------- 撤回 / 戳一戳灰条 ----------
+  // ---------- 撤回标记 / 戳一戳灰条 ----------
 
-  /** 把指定消息替换为「xx 撤回了一条消息」系统灰条（幂等） */
-  const applyRecall = useCallback((selfId: string, scene: ChatScene, peer: string, messageId: string, operatorId?: string) => {
-    const key = fullKey(selfId, scene, peer)
-    // 操作者昵称需要当前快照解析，先按原消息发送者兜底（reducer 内再取不到列表则整体跳过）
-    const list = messageMapRef.current[key]
-    const msg = list?.find(m => m.messageId === messageId)
-    const operator = operatorId || msg?.senderId || ''
-    const name = resolveNameRef.current(selfId, operator)
-    dispatchMessages({ type: 'recall', key, messageId, operatorId: operator, operatorName: name })
+  /** 给指定消息打已撤回标记（气泡红框 + 「消息已撤回」，幂等） */
+  const applyRecall = useCallback((selfId: string, scene: ChatScene, peer: string, messageId: string) => {
+    dispatchMessages({ type: 'recall', key: fullKey(selfId, scene, peer), messageId })
   }, [])
 
   /** 面板发起戳一戳的待回显计数（key: selfId:scene:peer:operatorId:targetId），协议端回显自己的戳一戳时按此去重 */
@@ -405,14 +378,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // 未读记到消息所属 bot 头上；正在看该会话（同 bot 同会话）则不计
       const shortKey = `${msg.scene}:${msg.peer}`
-      const isViewing = msg.selfId === currentBotIdRef.current && currentKeyRef.current === shortKey
+      const isViewing = msg.selfId === currentBotRef.current?.selfId && currentKeyRef.current === shortKey
       if (msg.senderId !== msg.selfId && !isViewing) {
         dispatchUnread({ type: 'increment', selfId: msg.selfId, key: shortKey })
       }
     })
 
-    const unbindRecall = wsClient.onRecall(({ selfId, messageId, scene, peer, operatorId }) => {
-      applyRecall(selfId, scene, peer, messageId, operatorId)
+    const unbindRecall = wsClient.onRecall(({ selfId, messageId, scene, peer }) => {
+      applyRecall(selfId, scene, peer, messageId)
     })
 
     const unbindPoke = wsClient.onPoke(({ selfId, scene, peer, operatorId, targetId, action, suffix }) => {
@@ -429,12 +402,47 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       appendPoke(selfId, scene, peer, operatorId, targetId, action, suffix)
     })
 
+    // 会话资料增量（无列表接口的协议端收消息后补全头像/名称）：
+    // friends/groups upsert 进当前 bot 状态（只填空缺字段），users 头像增量进 avatarMap（全 bot）
+    const unbindProfiles = wsClient.onProfiles(({ selfId, friends: newFriends, groups: newGroups, users }) => {
+      if (users && users.length > 0) {
+        mergeAvatars(selfId, users.map(u => [u.userId, u.avatar]))
+      }
+      // friends/groups 状态只挂当前选中 bot；其他 bot 的资料由后端 db 缓存兜底，切 bot 重拉时带回
+      if (selfId !== currentBotRef.current?.selfId) return
+      if (newFriends.length > 0) {
+        setFriends(prev => {
+          const map = new Map(prev.map(f => [String(f.userId), f]))
+          for (const f of newFriends) {
+            const old = map.get(String(f.userId))
+            map.set(String(f.userId), old
+              ? { ...old, nick: old.nick || f.nick, avatar: old.avatar || f.avatar, remark: old.remark || f.remark }
+              : f)
+          }
+          return [...map.values()]
+        })
+      }
+      if (newGroups.length > 0) {
+        setGroups(prev => {
+          const map = new Map(prev.map(g => [String(g.groupId), g]))
+          for (const g of newGroups) {
+            const old = map.get(String(g.groupId))
+            map.set(String(g.groupId), old
+              ? { ...old, groupName: old.groupName || g.groupName, avatar: old.avatar || g.avatar, memberCount: old.memberCount || g.memberCount }
+              : g)
+          }
+          return [...map.values()]
+        })
+      }
+    })
+
     return () => {
       unbindMessage()
       unbindRecall()
       unbindPoke()
+      unbindProfiles()
     }
-  }, [applyRecall, appendPoke])
+  }, [applyRecall, appendPoke, mergeAvatars])
 
   // ---------- 会话列表 ----------
 
@@ -504,6 +512,27 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     () => (currentBotId && currentKey ? messageMap[fullKey(currentBotId, currentKey.split(':')[0] as ChatScene, currentKey.split(':')[1])] || [] : []),
     [messageMap, currentBotId, currentKey]
   )
+
+  // 头像补拉：当前群会话的消息发送者与成员列表里缺头像的 ID，批量走后端 getAvatarUrl（结果带 db 缓存）。
+  // 覆盖 db 拉取的历史消息发送者，以及无成员列表接口协议端的成员/发言人头像
+  useEffect(() => {
+    if (!currentBotId || !currentKey) return
+    if (currentKey.split(':')[0] !== 'group') return
+    const missing = new Set<string>()
+    const collect = (userId?: string) => {
+      if (!userId || userId === currentBotId) return
+      const key = `${currentBotId}:${userId}`
+      if (!avatarMapRef.current[key] && !requestedAvatarsRef.current.has(key)) missing.add(userId)
+    }
+    for (const m of messages) collect(m.senderId)
+    for (const m of groupMembers) collect(m.userId)
+    if (missing.size === 0) return
+    const ids = [...missing].slice(0, 50)
+    for (const id of ids) requestedAvatarsRef.current.add(`${currentBotId}:${id}`)
+    api.getAvatars(currentBotId, ids)
+      .then(map => mergeAvatars(currentBotId, Object.entries(map)))
+      .catch(() => { /* 静默失败：组件用字母占位兜底 */ })
+  }, [currentBotId, currentKey, messages, groupMembers, mergeAvatars])
 
   const openConversation = useCallback((key: string | null) => {
     setCurrentKey(key)
@@ -581,15 +610,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!bot) return
     try {
       await api.recallMessage({ selfId: bot.selfId, scene: msg.scene, peer: msg.peer, messageId: msg.messageId })
-      // 本地立即替换为灰条，WS recall 推送到达时幂等跳过
-      applyRecall(bot.selfId, msg.scene, msg.peer, msg.messageId, bot.selfId)
+      // 本地立即打撤回标记，WS recall 推送到达时幂等跳过
+      applyRecall(bot.selfId, msg.scene, msg.peer, msg.messageId)
     } catch (err) {
       setToast({ message: `撤回失败: ${(err as Error).message}`, type: 'error' })
     }
   }, [applyRecall, setToast])
 
-  // 文件选择：图片进入待发送区；视频/音频/其他文件 readAsDataURL 后直接作为元素发送
-  const handleFiles = useCallback(async (files: FileList | null) => {
+  // 文件直发（附件菜单「文件」/拖拽/粘贴的非图片文件）：按类型映射元素逐个发送，图片走附件菜单「图片」内联进输入框
+  const handleFiles = useCallback(async (files: FileList | File[] | null) => {
     if (!files || files.length === 0) return
     for (const file of Array.from(files)) {
       if (file.size > MAX_FILE_SIZE) {
@@ -604,25 +633,22 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }).catch(() => null)
       if (!base64) continue
 
-      if (file.type.startsWith('image/')) {
-        setStagedImages(prev => [...prev, base64])
-        continue
-      }
-
       const conv = currentConversationRef.current
       if (!conv) continue
       const element: MessageElement = file.type.startsWith('video/')
         ? { type: 'video', file: base64, name: file.name }
         : file.type.startsWith('audio/')
           ? { type: 'record', file: base64, name: file.name }
-          : { type: 'file', file: base64, name: file.name, size: file.size }
+          : file.type.startsWith('image/')
+            ? { type: 'image', file: base64 }
+            : { type: 'file', file: base64, name: file.name, size: file.size }
       try {
         await doSend(conv.scene, conv.peer, [element])
       } catch (err) {
         setToast({ message: `发送失败: ${(err as Error).message}`, type: 'error' })
       }
     }
-  }, [doSend, setToast, setStagedImages])
+  }, [doSend, setToast])
 
   return (
     <ChatContext.Provider value={{
@@ -638,6 +664,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       refreshGroupMembers,
       botGroupRole,
       botUnread,
+      resolveAvatar,
       sendMessage,
       resendMessage,
       recallMessage,

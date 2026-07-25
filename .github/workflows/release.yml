@@ -31,7 +31,7 @@ jobs:
     uses: ./.github/workflows/build.yml
 
   publish-core-github:
-    needs: [ release-please, build ]
+    needs: [release-please, build]
     if: ${{ needs.release-please.outputs.core-released == 'true' }}
     runs-on: ubuntu-latest
     steps:
@@ -51,7 +51,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   publish-core-npm:
-    needs: [ release-please, build ]
+    needs: [release-please, build]
     if: ${{ needs.release-please.outputs.core-released == 'true' }}
     runs-on: ubuntu-latest
     steps:
@@ -69,5 +69,3 @@ jobs:
       - run: npm install npm@latest -g
       - name: 发布 core 到 npm
         run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEM: ${{ secrets.NPM_TOKEN }}

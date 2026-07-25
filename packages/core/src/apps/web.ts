@@ -11,7 +11,8 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { render } from 'sandbox-template'
 import apiRouter from '@/api'
-import { toChatMessage, verifyWsToken } from '@/service'
+import { toChatMessage, verifyWsToken, ProfileService } from '@/service'
+import { messageDb } from '@/service/db'
 import { dir } from '@/dir'
 
 /** 面板挂载路径 */
@@ -99,7 +100,16 @@ karin.on(`ws:connection:${WS_PATH}`, (socket: WebSocket, req: { url?: string }, 
 // -------------------- 消息推送（全量广播，前端按当前选中的 Bot 过滤） --------------------
 hooks.message((e, next) => {
   const message = toChatMessage(e)
-  if (message) broadcast({ type: 'message', data: message })
+  if (message) {
+    broadcast({ type: 'message', data: message })
+    // 消息持久化到本地 sqlite（fire-and-forget，同 ProfileService：hooks 里禁止 await 慢操作）
+    void messageDb.insert(message).catch(() => {})
+    // 异步补全会话资料（头像/名称，写 db 缓存）：qqbot 等没有列表接口的协议端靠它给会话补头像。
+    // 不 await——缓存读写与协议端调用较慢，阻塞 hooks 会拖慢所有下游插件
+    void ProfileService.syncMessage(e).then(updates => {
+      if (updates) broadcast({ type: 'profiles', data: updates })
+    })
+  }
   // 必须调用 next()，否则事件会被吞掉，下游插件收不到
   next()
 })
@@ -113,39 +123,44 @@ const PRIVATE_RECALL_EVENT = 'notice.friendRecall' as unknown as 'notice.private
 const PRIVATE_POKE_EVENT = 'notice.friendPoke' as unknown as 'notice.privatePoke'
 
 /**
- * 撤回 / 戳一戳推送（前端渲染为小灰条）。
+ * 撤回 / 戳一戳推送（戳一戳前端渲染为小灰条；撤回给原气泡打 recalled 标记）。
+ * 撤回事件同时把 db 里的消息标记为已撤回，刷新后仍保持撤回态。
  * 注意：karin.accept() 只是创建插件对象，karin 扫描 apps 模块的**具名导出**完成注册
  * （default 导出会被跳过），不导出就是死代码，所以这里集中导出为数组。
  */
 export const noticeHandlers = [
   // -------------------- 撤回推送 --------------------
   karin.accept(PRIVATE_RECALL_EVENT, (e, next) => {
+    const messageId = e.content.messageId
     broadcast({
       type: 'recall',
       data: {
         selfId: e.selfId,
-        messageId: e.content.messageId,
+        messageId,
         scene: 'friend',
         peer: String(e.contact.peer),
         operatorId: String(e.content.operatorId),
         targetId: String(e.content.operatorId)
       }
     })
+    void messageDb.markRecalled(e.selfId, 'friend', String(e.contact.peer), messageId).catch(() => {})
     next()
   }),
 
   karin.accept('notice.groupRecall', (e, next) => {
+    const messageId = e.content.messageId
     broadcast({
       type: 'recall',
       data: {
         selfId: e.selfId,
-        messageId: e.content.messageId,
+        messageId,
         scene: 'group',
         peer: String(e.groupId),
         operatorId: String(e.content.operatorId),
         targetId: String(e.content.targetId)
       }
     })
+    void messageDb.markRecalled(e.selfId, 'group', String(e.groupId), messageId).catch(() => {})
     next()
   }),
 

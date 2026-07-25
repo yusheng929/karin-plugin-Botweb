@@ -34,6 +34,13 @@ export interface GroupMemberItem {
   role: 'owner' | 'admin' | 'member' | 'unknown'
 }
 
+/** 用户头像增量项（profiles 推送的 users 字段，与 template/src/core/types.ts 保持一致） */
+export interface UserAvatarItem {
+  userId: string
+  /** 协议端 getAvatarUrl 拿到的头像 url */
+  avatar: string
+}
+
 export type ChatScene = 'friend' | 'group'
 
 export type MessageElement =
@@ -58,6 +65,8 @@ export interface ChatMessage {
   /** 秒级时间戳 */
   time: number
   elements: MessageElement[]
+  /** 已撤回（前端给原气泡打红框标记，与 template/src/core/types.ts 保持一致） */
+  recalled?: boolean
 }
 
 /** Bot 适配器 -> BotInfo */

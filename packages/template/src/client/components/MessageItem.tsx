@@ -3,8 +3,9 @@ import { AlertCircle, Clock, FileIcon, Download } from 'lucide-react'
 import { ChatMessage, MessageElement } from '../../core/types'
 import { useChat } from '../state/chat'
 import { useUi } from '../state/ui'
-import { getAvatarUrl, getMessageSummary, toMillis, formatSize, resolveMediaSrc, downloadFile, qqFaceGif, qqFacePng, cn } from '../utils'
+import { getMessageSummary, toMillis, formatSize, resolveMediaSrc, downloadFile, qqFaceGif, qqFacePng, cn } from '../utils'
 import { useCachedSrc } from '../faceCache'
+import { Avatar } from './Avatar'
 
 /** QQ 表情（face 元素）：本地动图 → 本地静态图 → 占位文本 三级降级（src 走前端 IndexedDB 缓存） */
 const MessageFace: React.FC<{ id: number }> = ({ id }) => {
@@ -114,7 +115,7 @@ interface MessageItemProps {
 }
 
 export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupStart, groupEnd }) => {
-  const { resendMessage, groupMembers, messages } = useChat()
+  const { resendMessage, groupMembers, messages, resolveAvatar } = useChat()
   const { setConfirmDialog, setContextMenu, setToast, flashMessageId, flashMessage } = useUi()
   const isGroup = message.scene === 'group'
 
@@ -289,25 +290,22 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupSt
         flashMessageId === message.messageId && 'highlight-msg'
       )}
     >
-      {/* 头像列（仅群聊他人）：组尾显示头像，其余占位对齐 */}
+      {/* 头像列（仅群聊他人）：组尾显示头像，其余占位对齐；头像统一走后端协议端 getAvatarUrl，缺失用字母占位 */}
       {showAvatar && (
         <div className='w-8 shrink-0'>
           {groupEnd && (
-            <img
-              src={getAvatarUrl('private', message.senderId)}
-              alt=''
-              referrerPolicy='no-referrer'
-              onContextMenu={(e) => openMenu(e, 'avatar')}
-              className='w-8 h-8 rounded-full object-cover cursor-pointer select-none'
-            />
+            <span onContextMenu={(e) => openMenu(e, 'avatar')} className='block cursor-pointer select-none'>
+              <Avatar url={resolveAvatar(message.senderId)} name={message.senderName} className='w-8 h-8 text-sm' />
+            </span>
           )}
         </div>
       )}
 
-      <div className={cn('flex flex-col max-w-[65%] xl:max-w-[640px] min-w-0', isMe ? 'items-end' : 'items-start')}>
+      <div className={cn('relative flex flex-col max-w-[65%] xl:max-w-[640px] min-w-0', isMe ? 'items-end' : 'items-start')}>
         <div
           className={cn(
             'bubble min-w-0 max-w-full text-sm leading-relaxed break-words',
+            message.recalled && 'border-2 border-red-500/70',
             isPureMedia
               ? 'overflow-hidden rounded-xl'
               : cn(
@@ -340,9 +338,14 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupSt
           {!isPureMedia && timeFooter}
         </div>
 
-        {/* 纯媒体：时间浮层盖在图上 */}
+        {/* 已撤回标记：气泡下方红色小字（对齐方向跟随 isMe，由父容器 items-end/start 控制） */}
+        {message.recalled && (
+          <span className='mt-0.5 text-xs text-red-500/80 select-none'>消息已撤回</span>
+        )}
+
+        {/* 纯媒体：时间浮层盖在图上（absolute 不占布局空间，否则负 margin 会把下一条消息拉上来重叠） */}
         {isPureMedia && (
-          <span className='relative -mt-6 mr-2 self-end z-10 px-1.5 py-0.5 rounded bg-black/40 text-white text-[11px] leading-none select-none pointer-events-none'>
+          <span className='absolute bottom-1.5 right-2 z-10 px-1.5 py-0.5 rounded bg-black/40 text-white text-[11px] leading-none select-none pointer-events-none'>
             {formatTime(message.time)}
             {isMe && message.status === 'sending' && <Clock className='inline w-3 h-3 ml-1' />}
             {isMe && message.status === 'failed' && <AlertCircle className='inline w-3 h-3 ml-1 text-red-400' />}

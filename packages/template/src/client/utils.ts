@@ -20,16 +20,6 @@ export const isQQProtocol = (protocol?: string) => !!protocol && QQ_FACE_PROTOCO
 export const qqFaceGif = (id: number) => `${BASE}/faces/gif/s${id}.gif`
 export const qqFacePng = (id: number) => `${BASE}/faces/static/s${id}.png`
 
-/** 消息发送者头像（DTO 未携带发送者头像，沿用 QQ 头像服务按 ID 获取） */
-export const getAvatarUrl = (type: 'private' | 'group', id: number | string, customUrl?: string) => {
-  if (customUrl) return customUrl
-  const finalId = (!id || id === 0 || id === '0') ? '10000' : id
-  if (type === 'private') {
-    return `https://q1.qlogo.cn/g?b=qq&s=640&nk=${finalId}`
-  }
-  return `https://p.qlogo.cn/gh/${finalId}/${finalId}/640`
-}
-
 /**
  * 时间戳归一化为毫秒：大于 1e12 视为已是毫秒原样返回，否则按秒乘 1000
  *（部分来源如发送接口返回、本地 Date.now() 已是毫秒）

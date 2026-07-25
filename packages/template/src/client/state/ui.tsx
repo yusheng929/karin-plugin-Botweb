@@ -40,12 +40,13 @@ interface UiContextType {
   /** 待插入输入框的 @ 目标 userId，由 InputArea 消费后清空 */
   pendingMention: string | null
   setPendingMention: (v: string | null) => void
+  /** 待内联进输入框的图片文件（拖拽进窗口的图片），由 InputArea 消费后清空 */
+  pendingImages: File[] | null
+  setPendingImages: (v: File[] | null) => void
   flashMessageId: string | null
   flashMessage: (messageId: string) => void
 
   // 输入区
-  stagedImages: string[]
-  setStagedImages: React.Dispatch<React.SetStateAction<string[]>>
   showSettings: boolean
   setShowSettings: (v: boolean) => void
 }
@@ -66,9 +67,9 @@ export const UiProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
   const [pendingMention, setPendingMention] = useState<string | null>(null)
+  const [pendingImages, setPendingImages] = useState<File[] | null>(null)
   const [flashMessageId, setFlashMessageId] = useState<string | null>(null)
 
-  const [stagedImages, setStagedImages] = useState<string[]>([])
   const [showSettings, setShowSettings] = useState(false)
 
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -129,10 +130,10 @@ export const UiProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       setReplyTo,
       pendingMention,
       setPendingMention,
+      pendingImages,
+      setPendingImages,
       flashMessageId,
       flashMessage,
-      stagedImages,
-      setStagedImages,
       showSettings,
       setShowSettings
     }}

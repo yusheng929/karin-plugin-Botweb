@@ -1,6 +1,6 @@
 /**
  * 消息相关接口
- * 注意：本期不提供历史消息接口（各协议端 getHistoryMsg 差异大，见 service/message.ts 注释）
+ * 历史消息由 GET /bots/:selfId/messages 提供（本地 sqlite 持久化，见 service/db.ts 的 messageDb）
  */
 import { MessageService } from '@/service'
 import express, { type Router } from 'node-karin/express'

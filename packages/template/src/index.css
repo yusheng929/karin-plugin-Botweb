@@ -154,6 +154,17 @@ body {
   user-select: none;
 }
 
+/* 输入框内联的待发送图片（图文混排）：比表情大，限宽限高防止撑爆输入框 */
+.rich-input img.rich-image {
+  width: auto;
+  height: auto;
+  max-width: 160px;
+  max-height: 6rem;
+  border-radius: 8px;
+  vertical-align: middle;
+  object-fit: cover;
+}
+
 /* 细滚动条（TG 风格） */
 ::-webkit-scrollbar {
   width: 6px;

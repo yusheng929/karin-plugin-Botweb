@@ -7,17 +7,13 @@ import {
   MessageElement,
   ChatScene,
   ChatMessage,
+  UserAvatarItem,
   WsPush
 } from '../core/types'
 import { authHeaders, getAccessToken, getUserId, logout, refresh } from './auth'
 
 /** 后端挂载路径，由 render(basePath) 注入到 window.BOTWEB_BASE */
 export const BASE: string = (window as any).BOTWEB_BASE || '/botweb'
-
-/**
- * 注意：历史消息接口本期不实现（各协议端的历史消息格式/分页差异大，
- * 后端暂无统一抽象）。聊天窗口只展示页面打开后累积的实时消息与自己发送的消息。
- */
 
 async function request<T> (path: string, init?: RequestInit, retried = false): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -45,8 +41,16 @@ export const getFriends = (selfId: string) =>
 export const getGroups = (selfId: string) =>
   request<GroupItem[]>(`/api/bots/${encodeURIComponent(selfId)}/groups`)
 
+/** 拉取该 bot 的全部本地存储消息（后端 sqlite 持久化，时间升序；前端只存内存，刷新后重新拉取） */
+export const getMessages = (selfId: string) =>
+  request<ChatMessage[]>(`/api/bots/${encodeURIComponent(selfId)}/messages`)
+
 export const getGroupMembers = (selfId: string, groupId: string) =>
   request<GroupMemberItem[]>(`/api/bots/${encodeURIComponent(selfId)}/groups/${encodeURIComponent(groupId)}/members`)
+
+/** 批量获取用户头像（后端走协议端 getAvatarUrl + db 缓存，返回 userId -> url） */
+export const getAvatars = (selfId: string, ids: string[]) =>
+  request<Record<string, string>>(`/api/bots/${encodeURIComponent(selfId)}/avatars?ids=${ids.map(encodeURIComponent).join(',')}`)
 
 export interface SendMessagePayload {
   selfId: string
@@ -90,6 +94,7 @@ export const kickGroupMember = (selfId: string, groupId: string, targetId: strin
 type MessageHandler = (msg: ChatMessage) => void
 type RecallHandler = (data: { selfId: string, messageId: string, scene: ChatScene, peer: string, operatorId?: string, targetId?: string }) => void
 type PokeHandler = (data: { selfId: string, scene: ChatScene, peer: string, operatorId: string, targetId: string, action: string, suffix: string }) => void
+type ProfilesHandler = (data: { selfId: string, friends: FriendItem[], groups: GroupItem[], users: UserAvatarItem[] }) => void
 
 /**
  * WebSocket 客户端：连接后端推送通道（服务端只推不收，帧格式为 WsPush）。
@@ -100,6 +105,7 @@ export class WsClient {
   private messageHandlers = new Set<MessageHandler>()
   private recallHandlers = new Set<RecallHandler>()
   private pokeHandlers = new Set<PokeHandler>()
+  private profilesHandlers = new Set<ProfilesHandler>()
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private started = false
 
@@ -134,6 +140,8 @@ export class WsClient {
           this.recallHandlers.forEach(h => h(push.data))
         } else if (push.type === 'poke') {
           this.pokeHandlers.forEach(h => h(push.data))
+        } else if (push.type === 'profiles') {
+          this.profilesHandlers.forEach(h => h(push.data))
         }
       } catch (err) {
         console.error('[WS] Parse error', err)
@@ -181,6 +189,12 @@ export class WsClient {
   onPoke (cb: PokeHandler) {
     this.pokeHandlers.add(cb)
     return () => { this.pokeHandlers.delete(cb) }
+  }
+
+  /** 订阅会话资料增量推送（头像/名称补全），返回取消订阅函数 */
+  onProfiles (cb: ProfilesHandler) {
+    this.profilesHandlers.add(cb)
+    return () => { this.profilesHandlers.delete(cb) }
   }
 }
 

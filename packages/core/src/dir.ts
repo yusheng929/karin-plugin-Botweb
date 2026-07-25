@@ -43,4 +43,8 @@ export const dir = {
   get defResourcesDir () {
     return path.join(this.karinPath, 'resources')
   },
+  /** 插件数据目录 `@karinjs/karin-plugin-xxx/data`（sqlite db 等运行时数据） */
+  get dataDir () {
+    return path.join(this.karinPath, 'data')
+  },
 }

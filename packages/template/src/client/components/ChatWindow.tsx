@@ -10,7 +10,7 @@ import { ChatDetailsSidebar } from './ChatDetailsSidebar'
 
 export const ChatWindow: React.FC = () => {
   const { currentConversation, currentBot, groupMembers, handleFiles } = useChat()
-  const { showSettings, setShowSettings } = useUi()
+  const { showSettings, setShowSettings, setPendingImages } = useUi()
   const [isDragging, setIsDragging] = useState(false)
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -31,7 +31,12 @@ export const ChatWindow: React.FC = () => {
     setIsDragging(false)
 
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      handleFiles(e.dataTransfer.files)
+      const files = Array.from(e.dataTransfer.files)
+      // 图片内联进输入框（与文本混排，由 InputArea 消费），其他文件直接发送
+      const images = files.filter(f => f.type.startsWith('image/'))
+      const others = files.filter(f => !f.type.startsWith('image/'))
+      if (images.length > 0) setPendingImages(images)
+      if (others.length > 0) void handleFiles(others)
     }
   }
 
@@ -82,7 +87,7 @@ export const ChatWindow: React.FC = () => {
             <div className='bg-tg-blue text-white p-4 rounded-full shadow-xl mb-3'>
               <Upload className='w-7 h-7' />
             </div>
-            <p className='text-tg-blue font-medium'>松开鼠标发送文件</p>
+            <p className='text-tg-blue font-medium'>松开鼠标添加（图片进输入框，文件直接发送）</p>
           </motion.div>
         )}
       </AnimatePresence>
