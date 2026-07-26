@@ -1,7 +1,7 @@
 /**
  * 插件私有 sqlite 存储（@karinjs/sqlite3：karin 同款 napi 预编译 sqlite3，支持 node>=18）。
  * db 文件位于 karin 运行时插件目录 @karinjs/karin-plugin-botweb/data/botweb.db（不在仓库/插件包内）。
- * 两张表：profiles（好友/群/头像资料缓存）、messages（聊天消息持久化，前端启动时全量拉取）。
+ * 三张表：profiles（好友/群/头像资料缓存）、members（群成员缓存）、messages（聊天消息持久化，前端启动时全量拉取）。
  */
 import path from 'node:path'
 import fs from 'node:fs'
@@ -73,6 +73,16 @@ const init = (): Promise<Sqlite> => {
         updated_at   INTEGER NOT NULL,
         PRIMARY KEY (self_id, kind, target_id)
       )`)
+      await db.run(`CREATE TABLE IF NOT EXISTS members (
+        self_id    TEXT NOT NULL,
+        group_id   TEXT NOT NULL,
+        user_id    TEXT NOT NULL,
+        nick       TEXT NOT NULL DEFAULT '',
+        card       TEXT NOT NULL DEFAULT '',
+        role       TEXT NOT NULL DEFAULT 'member',
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (self_id, group_id, user_id)
+      )`)
       await db.run(`CREATE TABLE IF NOT EXISTS messages (
         self_id     TEXT NOT NULL,
         scene       TEXT NOT NULL CHECK (scene IN ('friend', 'group')),
@@ -132,6 +142,50 @@ export const profileDb = {
   async list (kind: ProfileRow['kind'], selfId: string): Promise<ProfileRow[]> {
     const db = await init()
     return db.all<ProfileRow>('SELECT * FROM profiles WHERE self_id = ? AND kind = ?', [selfId, kind])
+  }
+}
+
+/** 群成员行（members 表） */
+export interface MemberRow {
+  self_id: string
+  group_id: string
+  user_id: string
+  nick: string
+  card: string
+  role: string
+  updated_at: number
+}
+
+export const memberDb = {
+  /** 按主键取单个成员（未命中返回 null） */
+  async get (selfId: string, groupId: string, userId: string): Promise<MemberRow | null> {
+    const db = await init()
+    const row = await db.get<MemberRow>(
+      'SELECT * FROM members WHERE self_id = ? AND group_id = ? AND user_id = ?',
+      [selfId, groupId, userId]
+    )
+    return row ?? null
+  },
+
+  /** upsert 成员：空字符串字段不覆盖已有值（role 始终覆盖） */
+  async upsert (row: Omit<MemberRow, 'updated_at'>): Promise<void> {
+    const db = await init()
+    await db.run(
+      `INSERT INTO members (self_id, group_id, user_id, nick, card, role, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (self_id, group_id, user_id) DO UPDATE SET
+         nick       = CASE WHEN excluded.nick != '' THEN excluded.nick ELSE members.nick END,
+         card       = CASE WHEN excluded.card != '' THEN excluded.card ELSE members.card END,
+         role       = excluded.role,
+         updated_at = excluded.updated_at`,
+      [row.self_id, row.group_id, row.user_id, row.nick, row.card, row.role, Date.now()]
+    )
+  },
+
+  /** 按 bot + 群取全部成员 */
+  async list (selfId: string, groupId: string): Promise<MemberRow[]> {
+    const db = await init()
+    return db.all<MemberRow>('SELECT * FROM members WHERE self_id = ? AND group_id = ?', [selfId, groupId])
   }
 }
 

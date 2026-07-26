@@ -1,5 +1,5 @@
-import type { FriendItem, GroupItem } from './dto'
-import { profileDb, type ProfileRow } from './db'
+import type { FriendItem, GroupItem, GroupMemberItem } from './dto'
+import { profileDb, memberDb, type ProfileRow, type MemberRow } from './db'
 
 /**
  * 好友/群资料 + 用户头像缓存（插件私有 sqlite，表结构见 db.ts 的 profiles 表）。
@@ -19,6 +19,13 @@ const toGroupItem = (row: ProfileRow): GroupItem => ({
   groupName: row.name || undefined,
   memberCount: row.member_count ?? undefined,
   avatar: row.avatar || undefined
+})
+
+const toMemberItem = (row: MemberRow): GroupMemberItem => ({
+  userId: row.user_id,
+  nick: row.nick || undefined,
+  card: row.card || undefined,
+  role: row.role === 'owner' || row.role === 'admin' ? row.role : 'member'
 })
 
 export const ProfileCache = {
@@ -85,5 +92,28 @@ export const ProfileCache = {
   async groups (selfId: string): Promise<GroupItem[]> {
     const rows = await profileDb.list('group', selfId).catch(() => [] as ProfileRow[])
     return rows.map(toGroupItem)
+  },
+
+  /** 单个群成员缓存（未命中返回 null） */
+  async getMember (selfId: string, groupId: string, userId: string): Promise<GroupMemberItem | null> {
+    const row = await memberDb.get(selfId, groupId, userId).catch(() => null)
+    return row ? toMemberItem(row) : null
+  },
+
+  async setMember (selfId: string, groupId: string, item: GroupMemberItem): Promise<void> {
+    await memberDb.upsert({
+      self_id: selfId,
+      group_id: groupId,
+      user_id: item.userId,
+      nick: item.nick || '',
+      card: item.card || '',
+      role: item.role
+    }).catch(() => {})
+  },
+
+  /** 某群的全部缓存成员 */
+  async members (selfId: string, groupId: string): Promise<GroupMemberItem[]> {
+    const rows = await memberDb.list(selfId, groupId).catch(() => [])
+    return rows.map(toMemberItem)
   }
 }

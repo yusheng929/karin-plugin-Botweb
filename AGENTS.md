@@ -37,16 +37,18 @@ packages/
 │   │   ├── api/                   # express 路由（node-karin/express 的 Router）
 │   │   │   ├── index.ts           # 聚合 router：json(50mb) + 子路由 + JSON 错误处理
 │   │   │   ├── bot.ts             # GET bots / messages / friends / groups / members，POST poke / kick
-│   │   │   └── message.ts         # POST send / recall
+│   │   │   ├── message.ts         # POST send / recall
+│   │   │   └── settings.ts        # GET/POST settings（插件设置读写）
 │   │   └── service/               # 业务层
-│   │       ├── bot.ts             # BotService：list/friends/groups/members/poke/kick（friends/groups 空或报错回退 ProfileCache）
+│   │       ├── bot.ts             # BotService：list/friends/groups/members/poke/kick（friends/groups/members 空或报错回退 ProfileCache）
 │   │       ├── message.ts         # MessageService：send/recall（成功后写 messages 表：send insert、recall 标记已撤回）
 │   │       ├── dto.ts             # ★ karin 类型 <-> 前端 DTO 映射（toChatMessage/toSendElements 等）
 │   │       ├── response.ts        # ok() / fail()（fail 返回 ApiResult<any>）
 │   │       ├── auth.ts            # WS 鉴权：verifyWsToken（karin JWT HS256 校验 + 明文 key 兜底）
-│   │       ├── cache.ts           # ProfileCache：好友/群资料 + 用户头像缓存（ProfileRow <-> DTO 映射）
-│   │       ├── db.ts              # profileDb + messageDb：插件私有 sqlite（@karinjs/sqlite3，profiles/messages 两表，懒初始化）
-│   │       ├── profile.ts         # ProfileService：收消息异步补全会话资料（头像/名称），返回 profiles 推送增量
+│   │       ├── cache.ts           # ProfileCache：好友/群资料 + 用户头像 + 群成员缓存（ProfileRow/MemberRow <-> DTO 映射）
+│   │       ├── db.ts              # profileDb + memberDb + messageDb：插件私有 sqlite（@karinjs/sqlite3，profiles/members/messages 三表，懒初始化）
+│   │       ├── settings.ts        # ★ SettingsService：插件设置（data/settings.json）+ 统计/消息存储门控判定
+│   │       ├── profile.ts         # ProfileService：收消息异步补全会话资料（头像/名称）+ 群成员统计，返回 profiles 推送增量
 │   │       └── types.ts           # 请求体类型
 │   ├── tsdown.config.ts           # entry: src/*.ts + src/apps/*.ts → lib/，neverBundle node-karin
 │   ├── scripts/download-faces.mjs # QFace 表情本地化下载（→ resources/faces，含 manifest.json）
@@ -66,8 +68,8 @@ packages/
     │       ├── state/             # ★ 状态层（UiProvider 外层、ChatProvider 内层，chat 通过 useUi 取 setToast）
     │       │   ├── chat.tsx       # 数据层：bots/会话/messageMap/未读/WS/发送撤回（messageMap/unread 走 useReducer；消息启动时从后端全量拉取只存内存）
     │       │   └── ui.tsx         # UI 状态：主题（同步根元素 .dark class）/toast/对话框/右键菜单/回复/pendingMention
-    │       └── components/        # TG 风格组件：Sidebar/ChatWindow/MessageList/MessageItem/InputArea/LoginScreen/
-    │                              # ContextMenu/Overlays/ChatDetailsSidebar/EmojiPicker
+    │       └── components/        # NavRail（QQ NT 式固定导航栏）/Sidebar（第二栏：聊天/联系人/设置，随 ui.tsx 的 navView 切换）/
+    │                              # ChatWindow/MessageList/MessageItem/InputArea/LoginScreen/ContextMenu/Overlays/ChatDetailsSidebar/EmojiPicker
     ├── scripts/inline.mjs         # vite 产物 → 单文件 HTML → src/generated/html.ts
     └── tsdown.config.ts           # 打包 src/index.ts → dist/index.js（供 core 引用）
 ```
@@ -95,15 +97,17 @@ pnpm exec tsc --noEmit -p packages/core      # core 类型检查（template 需�
 | GET | `/bots/:selfId/messages` | 该 bot 的全部本地存储消息 `ChatMessage[]`（sqlite messages 表，时间升序，含 `recalled` 标记；前端启动时全量拉取后只存内存） |
 | GET | `/bots/:selfId/friends` | 好友列表 `FriendItem[]`（含头像，失败降级空串；协议端返回空/报错时回退 db 资料缓存） |
 | GET | `/bots/:selfId/groups` | 群列表 `GroupItem[]`（空/报错回退 db 资料缓存） |
-| GET | `/bots/:selfId/groups/:groupId/members` | 群成员 `GroupMemberItem[]` |
+| GET | `/bots/:selfId/groups/:groupId/members` | 群成员 `GroupMemberItem[]`（空/报错回退 db 成员缓存） |
 | GET | `/bots/:selfId/avatars?ids=a,b,c` | 批量用户头像 `Record<userId,url>`（协议端 getAvatarUrl + db 缓存，单次上限 50 个） |
+| GET | `/settings` | 获取插件设置 `BotWebSettings` |
+| POST | `/settings` | 更新插件设置（部分字段归并，非法值忽略，返回完整设置） |
 | POST | `/bots/:selfId/groups/:groupId/poke` | 戳一戳群成员 `{ targetId }` |
 | POST | `/bots/:selfId/friends/:userId/poke` | 戳一戳好友（无 body） |
 | POST | `/bots/:selfId/groups/:groupId/kick` | 踢出成员 `{ targetId }` |
 | POST | `/message/send` | 发消息 `{ selfId, scene, peer, elements }` |
 | POST | `/message/recall` | 撤回 `{ selfId, scene, peer, messageId }` |
 
-消息持久化在**后端 sqlite messages 表**（`service/db.ts` 的 `messageDb`）：收消息（hooks.message）与自己发送（MessageService.send）时 `INSERT OR IGNORE` 入库；撤回（notice 回显与面板主动撤回）时 `recalled = 1`。前端启动时按 bot 全量拉取（`GET /bots/:selfId/messages`）只存内存，刷新后重新拉取——不走协议端 `getHistoryMsg`（各协议端差异大），插件启用前的历史消息不可见。
+消息持久化在**后端 sqlite messages 表**（`service/db.ts` 的 `messageDb`）：收消息（hooks.message）与自己发送（MessageService.send）时 `INSERT OR IGNORE` 入库；撤回（notice 回显与面板主动撤回）时 `recalled = 1`。**入库受设置门控**（`SettingsService.shouldStoreMessage`：全局开关 `messageStore` 关闭时全不存；开启时也仅存 `messageStoreBots` 里单独开启的 bot，默认空=都不存）。前端启动时按 bot 全量拉取（`GET /bots/:selfId/messages`）只存内存，刷新后重新拉取——不走协议端 `getHistoryMsg`（各协议端差异大），插件启用前的历史消息不可见；关闭存储只影响新消息，已入库的历史仍可拉取。
 
 ## WS 推送协议（`/botweb/ws`，服务端只推不收）
 
@@ -119,7 +123,8 @@ pnpm exec tsc --noEmit -p packages/core      # core 类型检查（template 需�
 ## 关键约束（踩过的坑，改动时务必遵守）
 
 - **`hooks.message` 回调必须调用 `next()`**，否则该消息对所有下游插件被吞掉；且禁止在钩子里 await 慢操作（db/协议端调用）——会话资料补全（`ProfileService.syncMessage`）是 fire-and-forget 的，防止拖慢所有下游插件。
-- **好友/群资料 sqlite 缓存**（`service/db.ts` + `service/cache.ts`）：用插件私有 sqlite（`@karinjs/sqlite3`，karin 同款 napi 预编译，支持 node>=18；**不要用 `node:sqlite`**，它要求 node>=22.5 而 node-karin 只要求 >=18），db 文件在 karin 运行时目录 `@karinjs/karin-plugin-botweb/data/botweb.db`（`dir.dataDir`，不在仓库内）。`profiles` 表：主键 `(self_id, kind, target_id)`，`kind ∈ friend/group/avatar`，upsert 时空字符串字段不覆盖已有值（`CASE WHEN excluded.x != ''`）。两条写入路径：列表接口拿到真实列表时全量刷新；`ProfileService.syncMessage` 缓存未命中时调协议端补单条（`pending` Set 防并发打爆接口）。`friends`/`groups` 接口在协议端**返回空数组（qqbot 不抛错）或抛错**时回退缓存。注意**群消息发送者不进好友缓存**（只进 avatar 行），否则前端会把每个群成员当成好友会话。
+- **好友/群/群成员 sqlite 缓存**（`service/db.ts` + `service/cache.ts`）：用插件私有 sqlite（`@karinjs/sqlite3`，karin 同款 napi 预编译，支持 node>=18；**不要用 `node:sqlite`**，它要求 node>=22.5 而 node-karin 只要求 >=18），db 文件在 karin 运行时目录 `@karinjs/karin-plugin-botweb/data/botweb.db`（`dir.dataDir`，不在仓库内）。`profiles` 表：主键 `(self_id, kind, target_id)`，`kind ∈ friend/group/avatar`，upsert 时空字符串字段不覆盖已有值（`CASE WHEN excluded.x != ''`）。`members` 表：主键 `(self_id, group_id, user_id)`，同样的非空不覆盖 upsert（role 始终覆盖）。**写入受设置门控**（`SettingsService.shouldCacheProfiles`，配置项 `profileCacheMode`：`all` 全部统计 / `non-qq` 默认仅非 QQ 协议 / `off` 关闭；QQ 协议列表与前端 `utils.ts` 的 QQ_FACE_PROTOCOLS 保持一致）。三条写入路径：列表接口拿到真实列表时全量刷新（friends/groups/members）；`ProfileService.syncMessage` 缓存未命中时调协议端补单条（`pending` Set 防并发打爆接口）；群消息发送者累积进 members 表（qqbot 等无成员列表接口的协议端靠它攒名册）。统计关闭的 bot 仍实时补全并推送 profiles 增量（进程内 `synced` Set 去重，不落库）。`friends`/`groups`/`members` 接口在协议端**返回空数组（qqbot 不抛错）或抛错**时回退缓存。注意**群消息发送者不进好友缓存**（只进 avatar 行 + members 行），否则前端会把每个群成员当成好友会话。
+- **插件设置**（`service/settings.ts`）：JSON 存 `dir.dataDir/settings.json`（区别于运行时数据的 sqlite——设置是低频读写、便于手改）；字段 `profileCacheMode` / `messageStore` / `messageStoreBots`，契约 `BotWebSettings` 两边（`service/dto.ts` 与 `template/src/core/types.ts`）同步；读写走 `GET/POST /botweb/api/settings`，前端在设置视图（`Sidebar.tsx` 的 `SettingsView`）乐观更新 + 失败回滚。
 - **`@karinjs/sqlite3` 是唯一的运行时依赖**（`dependencies` 字段）：native .node 不能进 bundle，tsdown `neverBundle` 已加；其余依赖仍走 devDependencies + tsdown 全部打包进 `lib/` 的模式。
 - **前端禁止直拼 qlogo 头像地址**（qlogo 只对 QQ 数字账号有效，其他协议必裂图）：用户头像统一走后端协议端 `getAvatarUrl`——实时消息靠 profiles 推送的 `users` 增量，历史/成员头像靠 `GET /avatars` 补拉（`chat.tsx` 的 `avatarMap` + `resolveAvatar`，字母占位兜底）；会话头像走 friends/groups 的 `avatar` 字段。渲染统一用 `components/Avatar.tsx`（有 url 显示图，无 url 名称首字符圆形占位）。
 - **WS 必须复用 karin 内置 wss**：用 `karin.on('ws:connection:<path>', (socket, req, call) => { call(); ... })` 接管，**3 秒内不调 `call()` karin 自动断连**；禁止自建 `new WebSocketServer({ server })`（会冲突）。
@@ -130,14 +135,14 @@ pnpm exec tsc --noEmit -p packages/core      # core 类型检查（template 需�
 - express v5 通配符写法是 `/botweb/*splat`；API 路由必须注册在 SPA 兜底之前。
 - `express.json({ limit: '50mb' })` 不能删——图片/文件以 base64 随 JSON 发送，默认 100kb 会被拒且 express 返回 HTML 错误页。
 - 时间戳单位混乱：karin 事件是**秒**，但部分接口返回**毫秒**——前端一律经 `toMillis()` 归一（>1e12 视为毫秒）。
-- 前端视觉为 **Telegram Desktop 经典风格**：配色集中在 `index.css` 的 `tg-*` CSS 变量（`:root` 浅色 / `.dark` 深色），经 `@theme inline` 映射为 tailwind 的 `bg-tg-*`/`text-tg-*` 等工具类；暗色由 `state/ui.tsx` 给根元素挂 `.dark` class + tailwind `dark:` 变体（`@custom-variant`）驱动。气泡尾巴是 `.bubble-tail-me/.bubble-tail-them` 纯 CSS 三角。
+- 前端整体布局为 **QQ NT 桌面版式**：`NavRail` 固定窄导航栏（顶部头像+昵称、点击头像弹账号切换列表，中部「聊天/联系人」，底部「主题/设置」弹层）+ `Sidebar` 第二栏（随 `ui.tsx` 的 `navView` 切换聊天/联系人/设置视图）+ `ChatWindow` 主区域；导航栏底色用 `index.css` 的 `--tg-rail` 变量。消息区视觉仍为 **Telegram Desktop 经典风格**：配色集中在 `index.css` 的 `tg-*` CSS 变量（`:root` 浅色 / `.dark` 深色），经 `@theme inline` 映射为 tailwind 的 `bg-tg-*`/`text-tg-*` 等工具类；暗色由 `state/ui.tsx` 给根元素挂 `.dark` class + tailwind `dark:` 变体（`@custom-variant`）驱动。气泡尾巴是 `.bubble-tail-me/.bubble-tail-them` 纯 CSS 三角。
 - QQ 图床按 referer 防盗链：所有 `<img>` 必须带 `referrerPolicy="no-referrer"`；karin 的 `base64://` 前缀需转成 data URL（`resolveMediaSrc`）。
 - QQ 小黄脸（face 元素）：图源已**本地化**——`core/scripts/download-faces.mjs` 把 koishijs/QFace 的动图/静态图下载到 `core/resources/faces/{gif,static}/` 并生成 `manifest.json`（清单接口 data.jsdelivr.com 部分网络 403，脚本改为直接探测 CDN id 0..399，已存在文件会跳过），由 core 的 `GET /botweb/faces/manifest.json` 与 `/botweb/faces/:type/:name` 路由托管（不鉴权、长缓存，注册在 SPA 兜底之前）。`MessageFace` 按 本地动图→本地静态图→`[表情:id]` 文本 三级降级（url 工具在 template `utils.ts` 的 `qqFaceGif/qqFacePng`）。
 - **表情资源前端持久缓存**（`template/src/client/faceCache.ts`）：blob 存 IndexedDB（`botweb-faces/faces`），命中后 `<img>` 直接用 object URL、零网络请求；回源并发限 6；manifest 内存缓存一次；打开 QFace 页签时后台预热全部静态图。改表情相关代码时 `<img>` 的 src 必须走 `useCachedSrc()`，不要直接用远程/路由 url。
 - **QQ 平台适配**：`BotInfo.protocol` 携带 `bot.adapter.protocol`（契约两边已同步）；`utils.isQQProtocol` 判定 QQ 协议实现（`icqq/gocq-http/napcat/oicq/llonebot/lagrange`，**qqbot 官方 API 不支持经典小黄脸，不计入**）。QQ bot 的表情面板有「QFace」横向分类，点选后表情以**内联图片**插入输入框光标处（见下条），与文本混排，发送时按出现顺序解析为 text/face 元素序列；非 QQ bot 无此分类、不能发 face。
 - **输入框是 contenteditable 富文本**（`.rich-input`，非受控组件）：QQ 表情（`<img data-face-id>`）与待发送图片（`<img data-image-id class="rich-image">`，dataURL 存 `pendingImagesRef` 不塞 DOM 属性）内联混排，发送时 `parseEditor()` 遍历 DOM 按出现顺序解析为 text/face/image 元素序列再拆 @；粘贴只取纯文本、粘贴图片内联进编辑器、粘贴其他文件走 handleFiles 直发；空态由 `syncEmpty()` 手动同步（驱动发送按钮禁用）；placeholder 靠 CSS `.rich-input:empty::before`。选择表情/插入 @ 后必须 `editor.focus()`，否则回车会触发聚焦的按钮而不是发送。
 - **附件按钮是 TG 风格小菜单**（InputArea `showAttach`）：「图片」打开 `accept='image/*'` 选择器，选中的图片内联进输入框与文本混排；「文件」打开 `*/*` 选择器，选中后走 `handleFiles` **直接发送**（video/audio/image/file 按类型映射元素，不再有 stagedImages 待发送区）。**拖拽/粘贴的图片也内联进输入框**（拖拽经 ui.tsx 的 `pendingImages` 由 InputArea 消费，与 pendingMention 同模式），其他文件直发。注意文件选择器 `onChange` 必须**先 `Array.from` 拷贝再清空 `input.value`**——`input.files` 的 FileList 是活动的，清空后已捕获的 FileList 会变空。
-- **消息 sqlite 持久化**（`service/db.ts` 的 `messageDb`，同库 `messages` 表）：主键 `(self_id, scene, peer, message_id)`，`time` 存**毫秒**（入库时 >1e12 判定归一），`elements` 存 JSON。写入用 `INSERT OR IGNORE`（自己发的消息会被 send 接口与协议端回显各写一次，后到者忽略）；入库前把 `data:` 开头的 base64 媒体降级为占位文本（防撑爆 db）。`hooks.message` 里写库与 ProfileService 一样是 **fire-and-forget，禁止 await**。撤回走 `markRecalled` 置 `recalled = 1`，前端刷新后仍保持撤回红框态。
+- **消息 sqlite 持久化**（`service/db.ts` 的 `messageDb`，同库 `messages` 表）：主键 `(self_id, scene, peer, message_id)`，`time` 存**毫秒**（入库时 >1e12 判定归一），`elements` 存 JSON。写入用 `INSERT OR IGNORE`（自己发的消息会被 send 接口与协议端回显各写一次，后到者忽略）；入库前把 `data:` 开头的 base64 媒体降级为占位文本（防撑爆 db）。**写入受设置门控**（全局 `messageStore` 开关 + `messageStoreBots` 按 bot 单独开关，见上条设置约束）。`hooks.message` 里写库与 ProfileService 一样是 **fire-and-forget，禁止 await**。撤回走 `markRecalled` 置 `recalled = 1`，前端刷新后仍保持撤回红框态。
 - 前端消息**只存内存**（messageMap），启动时按 bot 调 `GET /bots/:selfId/messages` 全量拉取；reducer 的 `merge` 按 key 合并 + messageId 去重 + 时间排序，不覆盖拉取完成前到达的 WS 实时消息。localStorage 只剩未读数（`botweb:unread:{selfId}`）与登录态。
 - tsdown 的 core 构建要求 template 已构建（`dist/index.js` + `index.d.ts` 存在），否则类型检查和打包都会失败。
 - ESLint 目前跑不起来（`eslint.config.js` 依赖未安装的 `globals` 包），为既有问题。

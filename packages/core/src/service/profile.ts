@@ -2,6 +2,7 @@ import karin, { logger } from 'node-karin'
 import type { Message } from 'node-karin'
 import type { FriendItem, GroupItem, UserAvatarItem } from './dto'
 import { ProfileCache } from './cache'
+import { SettingsService } from './settings'
 
 /** 会话资料增量（WS profiles 推送载荷，契约见 template/src/core/types.ts） */
 export interface ProfileUpdates {
@@ -14,6 +15,9 @@ export interface ProfileUpdates {
 
 /** 正在补全中的资料 key，防止同一会话的连续消息并发打爆协议端接口 */
 const pending = new Set<string>()
+
+/** 统计关闭时的进程内去重：不落库，但同一会话每次启动最多补一次协议端调用 */
+const synced = new Set<string>()
 
 const run = async (key: string, task: () => Promise<void>): Promise<boolean> => {
   if (pending.has(key)) return false
@@ -29,6 +33,8 @@ const run = async (key: string, task: () => Promise<void>): Promise<boolean> => 
 /**
  * 收到消息后异步补全会话资料（头像/名称）：
  * 缓存未命中才调协议端接口，命中后写入 db 缓存并返回增量，由调用方广播给前端。
+ * 持久化受设置门控（联系人/群组统计，默认仅非 QQ 协议，见 settings.ts）：
+ * 统计关闭的 bot 仍实时补全并推送（进程内去重），只是不落库。
  * 仅供 hooks 里 fire-and-forget 调用，内部不抛异常。
  */
 export const ProfileService = {
@@ -38,6 +44,7 @@ export const ProfileService = {
       if (scene !== 'friend' && scene !== 'group') return null
       const bot = karin.getBot(e.selfId)
       if (!bot) return null
+      const cacheEnabled = SettingsService.shouldCacheProfiles(bot.adapter.protocol)
 
       const friends: FriendItem[] = []
       const groups: GroupItem[] = []
@@ -45,9 +52,10 @@ export const ProfileService = {
 
       if (scene === 'group') {
         const groupId = String(e.contact.peer)
-        const cached = await ProfileCache.getGroup(e.selfId, groupId)
+        const groupKey = `group:${e.selfId}:${groupId}`
+        const cached = cacheEnabled ? !!await ProfileCache.getGroup(e.selfId, groupId) : synced.has(groupKey)
         if (!cached) {
-          await run(`group:${e.selfId}:${groupId}`, async () => {
+          await run(groupKey, async () => {
             // qqbot 等不支持 getGroupInfo 的协议端返回空字段而不抛错，两者都要兜底
             const info = await bot.getGroupInfo(groupId).catch(() => null)
             const avatar = info?.avatar || await bot.getGroupAvatarUrl(groupId).catch(() => '')
@@ -57,14 +65,16 @@ export const ProfileService = {
               memberCount: info?.memberCount || undefined,
               avatar
             }
-            await ProfileCache.setGroup(e.selfId, item)
+            if (cacheEnabled) await ProfileCache.setGroup(e.selfId, item)
+            else synced.add(groupKey)
             groups.push(item)
           })
         }
 
+        const senderId = String(e.sender.userId)
+
         // 群消息发送者头像：统一走协议端 getAvatarUrl（前端禁止直拼 qlogo，非 QQ 协议会裂图）。
         // 只进头像缓存/avatarMap，不进好友缓存，避免群成员变成好友会话
-        const senderId = String(e.sender.userId)
         if (senderId && senderId !== e.selfId && !await ProfileCache.getAvatar(e.selfId, senderId)) {
           await run(`avatar:${e.selfId}:${senderId}`, async () => {
             const avatar = await bot.getAvatarUrl(senderId).catch(() => '')
@@ -74,6 +84,21 @@ export const ProfileService = {
             }
           })
         }
+
+        // 群成员统计：把发言者累积进 members 表（qqbot 等没有成员列表接口的协议端靠它攒成员名册）
+        if (cacheEnabled && senderId && senderId !== e.selfId) {
+          const memberKey = `member:${e.selfId}:${groupId}:${senderId}`
+          if (!synced.has(memberKey) && !await ProfileCache.getMember(e.selfId, groupId, senderId)) {
+            await run(memberKey, async () => {
+              await ProfileCache.setMember(e.selfId, groupId, {
+                userId: senderId,
+                nick: e.sender.nick || '',
+                role: 'member'
+              })
+              synced.add(memberKey)
+            })
+          }
+        }
       }
 
       // 私聊：peer 即对方（自己发出的消息 peer 也是对方），缓存好友资料（含头像）。
@@ -81,16 +106,18 @@ export const ProfileService = {
       if (scene === 'friend') {
         const userId = String(e.contact.peer)
         if (userId && userId !== e.selfId) {
-          const cached = await ProfileCache.getFriend(e.selfId, userId)
+          const friendKey = `friend:${e.selfId}:${userId}`
+          const cached = cacheEnabled ? !!await ProfileCache.getFriend(e.selfId, userId) : synced.has(friendKey)
           if (!cached) {
-            await run(`friend:${e.selfId}:${userId}`, async () => {
+            await run(friendKey, async () => {
               const avatar = await bot.getAvatarUrl(userId).catch(() => '')
               const item: FriendItem = {
                 userId,
                 nick: e.sender.userId === userId ? (e.sender.nick || userId) : userId,
                 avatar
               }
-              await ProfileCache.setFriend(e.selfId, item)
+              if (cacheEnabled) await ProfileCache.setFriend(e.selfId, item)
+              else synced.add(friendKey)
               friends.push(item)
             })
           }

@@ -11,7 +11,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { render } from 'sandbox-template'
 import apiRouter from '@/api'
-import { toChatMessage, verifyWsToken, ProfileService } from '@/service'
+import { toChatMessage, verifyWsToken, ProfileService, SettingsService } from '@/service'
 import { messageDb } from '@/service/db'
 import { dir } from '@/dir'
 
@@ -102,8 +102,11 @@ hooks.message((e, next) => {
   const message = toChatMessage(e)
   if (message) {
     broadcast({ type: 'message', data: message })
-    // 消息持久化到本地 sqlite（fire-and-forget，同 ProfileService：hooks 里禁止 await 慢操作）
-    void messageDb.insert(message).catch(() => {})
+    // 消息持久化到本地 sqlite（fire-and-forget，同 ProfileService：hooks 里禁止 await 慢操作）。
+    // 受设置门控：全局开关关闭、或该 bot 未单独开启时不落库
+    if (SettingsService.shouldStoreMessage(e.selfId)) {
+      void messageDb.insert(message).catch(() => {})
+    }
     // 异步补全会话资料（头像/名称，写 db 缓存）：qqbot 等没有列表接口的协议端靠它给会话补头像。
     // 不 await——缓存读写与协议端调用较慢，阻塞 hooks 会拖慢所有下游插件
     void ProfileService.syncMessage(e).then(updates => {

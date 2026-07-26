@@ -24,6 +24,10 @@ interface UiContextType {
   setTheme: (theme: 'light' | 'dark' | 'system') => void
   actualTheme: 'light' | 'dark'
 
+  // 导航栏当前视图（QQ NT 式固定侧边栏：聊天 / 联系人 / 设置）
+  navView: 'chats' | 'contacts' | 'settings'
+  setNavView: (v: 'chats' | 'contacts' | 'settings') => void
+
   // 全局浮层
   toast: Toast | null
   setToast: (toast: string | Toast | null) => void
@@ -72,6 +76,8 @@ export const UiProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
   const [showSettings, setShowSettings] = useState(false)
 
+  const [navView, setNavView] = useState<'chats' | 'contacts' | 'settings'>('chats')
+
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const setToast = useCallback((val: string | Toast | null) => {
@@ -118,6 +124,8 @@ export const UiProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       theme,
       setTheme,
       actualTheme,
+      navView,
+      setNavView,
       toast,
       setToast,
       alertDialog,

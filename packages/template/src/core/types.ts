@@ -42,6 +42,22 @@ export interface UserAvatarItem {
   avatar: string
 }
 
+/** 联系人/群组统计模式（与 core 的 service/dto.ts 保持一致） */
+export type ProfileCacheMode = 'all' | 'non-qq' | 'off'
+
+/** 插件设置（与 core 的 service/dto.ts 保持一致） */
+export interface BotWebSettings {
+  /**
+   * 联系人/群组/群成员本地统计开关：
+   * all=统计全部 Bot；non-qq（默认）=仅统计非 QQ 协议 Bot；off=关闭统计
+   */
+  profileCacheMode: ProfileCacheMode
+  /** 全局消息存储总开关：关闭时所有 bot 都不存消息（即使单独开启的 bot 也不存） */
+  messageStore: boolean
+  /** 单独开启消息存储的 bot selfId 列表（仅在全局开关打开时生效，默认空=都不存） */
+  messageStoreBots: string[]
+}
+
 /** 消息元素（客户端与后端 DTO 共用，未知类型降级为 other） */
 export type MessageElement =
   | { type: 'text', text: string }

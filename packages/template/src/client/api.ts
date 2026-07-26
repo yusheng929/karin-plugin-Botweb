@@ -8,6 +8,7 @@ import {
   ChatScene,
   ChatMessage,
   UserAvatarItem,
+  BotWebSettings,
   WsPush
 } from '../core/types'
 import { authHeaders, getAccessToken, getUserId, logout, refresh } from './auth'
@@ -89,6 +90,16 @@ export const kickGroupMember = (selfId: string, groupId: string, targetId: strin
   request<null>(`/api/bots/${encodeURIComponent(selfId)}/groups/${encodeURIComponent(groupId)}/kick`, {
     method: 'POST',
     body: JSON.stringify({ targetId })
+  })
+
+/** 获取插件设置 */
+export const getSettings = () => request<BotWebSettings>('/api/settings')
+
+/** 更新插件设置（部分字段归并，返回更新后的完整设置） */
+export const saveSettings = (patch: Partial<BotWebSettings>) =>
+  request<BotWebSettings>('/api/settings', {
+    method: 'POST',
+    body: JSON.stringify(patch)
   })
 
 type MessageHandler = (msg: ChatMessage) => void

@@ -1,6 +1,7 @@
 import express, { type NextFunction, type Request, type Response, type Router } from 'node-karin/express'
 import botRouter from './bot'
 import messageRouter from './message'
+import settingsRouter from './settings'
 
 const router: Router = express.Router()
 
@@ -8,6 +9,7 @@ const router: Router = express.Router()
 router.use(express.json({ limit: '50mb' }))
 router.use(botRouter)
 router.use('/message', messageRouter)
+router.use(settingsRouter)
 
 // 统一 JSON 错误返回（默认错误处理器会返回 HTML 错误页，前端 fetch 无法解析）
 router.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {

@@ -4,6 +4,7 @@ import { fail, ok } from './response'
 import { toBotInfo, toFriendItem, toGroupItem, toMemberItem } from './dto'
 import type { BotInfo, FriendItem, GroupItem, GroupMemberItem } from './dto'
 import { ProfileCache } from './cache'
+import { SettingsService } from './settings'
 
 export const BotService = {
   get (Id: string) {
@@ -19,6 +20,7 @@ export const BotService = {
    * 获取好友列表（并发获取头像，失败降级为空字符串）。
    * qqbot 等协议端没有好友列表接口（返回空数组而不是抛错），
    * 拿到空列表或接口报错时回退到 db 资料缓存；拿到真实列表时顺手刷新缓存。
+   * 缓存刷新受设置门控（联系人/群组统计，默认仅非 QQ 协议，见 settings.ts）。
    */
   async friends (selfId: string): Promise<ApiResult<FriendItem[]>> {
     const bot = this.get(selfId)
@@ -31,7 +33,9 @@ export const BotService = {
         return toFriendItem(user, avatar)
       }))
       // 异步刷新缓存，不阻塞接口返回
-      void Promise.all(data.map(item => ProfileCache.setFriend(selfId, item))).catch(() => {})
+      if (SettingsService.shouldCacheProfiles(bot.adapter.protocol)) {
+        void Promise.all(data.map(item => ProfileCache.setFriend(selfId, item))).catch(() => {})
+      }
       return ok(data)
     } catch (err) {
       const cached = await ProfileCache.friends(selfId)
@@ -39,7 +43,7 @@ export const BotService = {
     }
   },
 
-  /** 获取群列表（空列表/报错回退 db 缓存，逻辑同好友列表） */
+  /** 获取群列表（空列表/报错回退 db 缓存，缓存刷新按设置门控，逻辑同好友列表） */
   async groups (selfId: string): Promise<ApiResult<GroupItem[]>> {
     const bot = this.get(selfId)
     if (!bot) return fail('Bot不存在')
@@ -47,7 +51,9 @@ export const BotService = {
       const list = await bot.getGroupList()
       if (list.length === 0) return ok(await ProfileCache.groups(selfId))
       const data = list.map(toGroupItem)
-      void Promise.all(data.map(item => ProfileCache.setGroup(selfId, item))).catch(() => {})
+      if (SettingsService.shouldCacheProfiles(bot.adapter.protocol)) {
+        void Promise.all(data.map(item => ProfileCache.setGroup(selfId, item))).catch(() => {})
+      }
       return ok(data)
     } catch (err) {
       const cached = await ProfileCache.groups(selfId)
@@ -55,15 +61,25 @@ export const BotService = {
     }
   },
 
-  /** 获取群成员列表 */
+  /**
+   * 获取群成员列表。
+   * qqbot 等协议端没有成员列表接口（返回空数组而不是抛错），空列表/报错时回退 db 成员缓存
+   * （由列表刷新与 ProfileService 的群消息发送者统计累积）；拿到真实列表时按设置门控刷新缓存。
+   */
   async members (selfId: string, groupId: string): Promise<ApiResult<GroupMemberItem[]>> {
     const bot = this.get(selfId)
     if (!bot) return fail('Bot不存在')
     try {
       const list = await bot.getGroupMemberList(groupId)
-      return ok(list.map(toMemberItem))
+      if (list.length === 0) return ok(await ProfileCache.members(selfId, groupId))
+      const data = list.map(toMemberItem)
+      if (SettingsService.shouldCacheProfiles(bot.adapter.protocol)) {
+        void Promise.all(data.map(item => ProfileCache.setMember(selfId, groupId, item))).catch(() => {})
+      }
+      return ok(data)
     } catch (err) {
-      return fail(err instanceof Error ? err.message : '获取群成员列表失败')
+      const cached = await ProfileCache.members(selfId, groupId)
+      return cached.length > 0 ? ok(cached) : fail(err instanceof Error ? err.message : '获取群成员列表失败')
     }
   },
 

@@ -1,24 +1,17 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
-  Menu,
   Bot,
   Search,
-  Sun,
-  Moon,
-  Monitor,
-  Check,
   ChevronDown,
-  ArrowLeft,
-  UserRound,
   Users,
-  Settings,
-  IdCard,
-  AtSign
+  Database,
+  MessageSquareText
 } from 'lucide-react'
-import { motion, AnimatePresence } from 'framer-motion'
 import { useChat, Conversation } from '../state/chat'
 import { useUi } from '../state/ui'
 import { getMessageSummary, toMillis, cn } from '../utils'
+import { getSettings, saveSettings } from '../api'
+import type { BotWebSettings, ProfileCacheMode } from '../../core/types'
 import { Avatar } from './Avatar'
 
 /** 会话列表时间：今天显示 HH:MM，否则显示 M月d日 */
@@ -32,255 +25,14 @@ const formatListTime = (time?: number) => {
     : `${d.getMonth() + 1}月${d.getDate()}日`
 }
 
-const THEME_OPTIONS = [
-  { value: 'light', label: '白天模式', icon: Sun },
-  { value: 'dark', label: '黑夜模式', icon: Moon },
-  { value: 'system', label: '跟随系统', icon: Monitor }
-] as const
-
-type DrawerView = 'menu' | 'profile' | 'contacts' | 'settings'
-
-/**
- * TG 桌面版式左侧抽屉：蓝色头部（头像/昵称/ID，点击展开账号切换列表），
- * 菜单项「我的资料 / 联系人 / 设置（占位）」与主题切换
- */
-const DrawerMenu: React.FC<{ onClose: () => void }> = ({ onClose }) => {
-  const { bots, currentBot, selectBot, botUnread, conversations, openConversation } = useChat()
-  const { theme, setTheme } = useUi()
-  const [view, setView] = useState<DrawerView>('menu')
-  const [showAccounts, setShowAccounts] = useState(false)
-  /** 联系人分组的折叠状态（默认展开） */
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
-
-  const toggleSection = (key: string) => setCollapsed(prev => ({ ...prev, [key]: !prev[key] }))
-
-  /** 联系人视图：好友在前、群在后，各按名称排序 */
-  const contacts = useMemo(() => {
-    return [...conversations].sort((a, b) => {
-      if (a.scene !== b.scene) return a.scene === 'friend' ? -1 : 1
-      return a.name.localeCompare(b.name, 'zh-CN')
-    })
-  }, [conversations])
-
-  const menuItem = (icon: React.ReactNode, label: string, onClick: () => void) => (
-    <button
-      onClick={onClick}
-      className='w-full flex items-center gap-4 px-4 py-2.5 hover:bg-tg-hover transition-colors text-sm'
-    >
-      <span className='text-tg-text-secondary'>{icon}</span>
-      <span className='flex-1 text-left'>{label}</span>
-    </button>
-  )
-
-  const subViewHeader = (title: string) => (
-    <div className='h-14 px-2 flex items-center gap-2 border-b border-tg-border shrink-0'>
-      <button
-        onClick={() => setView('menu')}
-        className='p-2.5 rounded-full hover:bg-tg-hover transition-colors text-tg-text-secondary'
-        title='返回'
-      >
-        <ArrowLeft className='w-5 h-5' />
-      </button>
-      <h3 className='text-sm font-semibold'>{title}</h3>
-    </div>
-  )
-
-  return (
-    <>
-      {/* 遮罩 */}
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        onClick={onClose}
-        className='fixed inset-0 bg-black/30 z-40'
-      />
-      <motion.div
-        initial={{ x: '-100%' }}
-        animate={{ x: 0 }}
-        exit={{ x: '-100%' }}
-        transition={{ type: 'tween', duration: 0.2 }}
-        className='fixed left-0 top-0 bottom-0 w-[300px] bg-tg-bg shadow-2xl z-50 flex flex-col overflow-hidden'
-      >
-        {view === 'menu' && (
-          <>
-            {/* 蓝色头部：头像 / 昵称 / ID，点击展开账号列表 */}
-            <div className='bg-tg-blue text-white shrink-0'>
-              <div
-                onClick={() => setShowAccounts(!showAccounts)}
-                className='px-4 pt-5 pb-4 cursor-pointer hover:bg-white/5 transition-colors'
-                title='切换账号'
-              >
-                <div className='flex items-start justify-between'>
-                  <Avatar url={currentBot?.avatar} name={currentBot?.name || '?'} className='w-14 h-14 text-xl ring-2 ring-white/30' />
-                  <ChevronDown className={cn('w-5 h-5 mt-1 transition-transform text-white/80', showAccounts && 'rotate-180')} />
-                </div>
-                <div className='mt-3 text-sm font-medium truncate'>{currentBot?.name || '未连接 Bot'}</div>
-                <div className='text-xs text-white/70 truncate'>{currentBot?.selfId}</div>
-              </div>
-
-              {/* 账号切换列表（在头部下方展开） */}
-              <AnimatePresence>
-                {showAccounts && bots.length > 0 && (
-                  <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    className='overflow-hidden bg-tg-bg text-tg-text'
-                  >
-                    {bots.map((b) => {
-                      const isCurrent = b.selfId === currentBot?.selfId
-                      const unread = !isCurrent ? (botUnread[b.selfId] || 0) : 0
-                      return (
-                        <button
-                          key={b.selfId}
-                          onClick={() => {
-                            if (!isCurrent) selectBot(b.selfId)
-                            onClose()
-                          }}
-                          className='w-full flex items-center gap-3 px-4 py-2.5 hover:bg-tg-hover transition-colors'
-                        >
-                          <Avatar url={b.avatar} name={b.name} className='w-9 h-9 text-sm' />
-                          <span className='flex-1 min-w-0 text-left'>
-                            <span className='block text-sm truncate'>{b.name}</span>
-                            <span className='block text-xs text-tg-text-secondary truncate'>{b.selfId}</span>
-                          </span>
-                          {unread > 0 && (
-                            <span className='bg-tg-badge text-white text-[11px] min-w-[20px] h-5 rounded-full flex items-center justify-center px-1.5 font-medium'>
-                              {unread > 99 ? '99+' : unread}
-                            </span>
-                          )}
-                          {isCurrent && <Check className='w-4 h-4 text-tg-blue shrink-0' />}
-                        </button>
-                      )
-                    })}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
-            {/* 菜单项 */}
-            <div className='py-1.5'>
-              {menuItem(<UserRound className='w-5 h-5' />, '我的资料', () => setView('profile'))}
-              {menuItem(<Users className='w-5 h-5' />, '联系人', () => setView('contacts'))}
-              {menuItem(<Settings className='w-5 h-5' />, '设置', () => setView('settings'))}
-            </div>
-
-            <div className='border-t border-tg-border my-1' />
-
-            {/* 主题 */}
-            <div className='py-1.5'>
-              {THEME_OPTIONS.map(({ value, label, icon: Icon }) => (
-                <button
-                  key={value}
-                  onClick={() => setTheme(value)}
-                  className='w-full flex items-center gap-4 px-4 py-2.5 hover:bg-tg-hover transition-colors text-sm'
-                >
-                  <Icon className='w-5 h-5 text-tg-text-secondary' />
-                  <span className='flex-1 text-left'>{label}</span>
-                  {theme === value && <Check className='w-4 h-4 text-tg-blue' />}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
-
-        {view === 'profile' && currentBot && (
-          <>
-            {subViewHeader('我的资料')}
-            <div className='flex-1 overflow-y-auto'>
-              <div className='flex flex-col items-center pt-8 pb-6 px-4'>
-                <Avatar url={currentBot.avatar} name={currentBot.name} className='w-28 h-28 text-4xl shadow-sm mb-4' />
-                <h4 className='text-lg font-semibold text-center truncate max-w-full'>{currentBot.name}</h4>
-              </div>
-              <div className='border-t border-tg-border'>
-                <div className='flex items-center gap-4 px-4 py-3'>
-                  <IdCard className='w-5 h-5 text-tg-text-secondary shrink-0' />
-                  <div className='min-w-0'>
-                    <div className='text-sm truncate'>{currentBot.selfId}</div>
-                    <div className='text-xs text-tg-text-secondary'>ID</div>
-                  </div>
-                </div>
-                <div className='flex items-center gap-4 px-4 py-3'>
-                  <AtSign className='w-5 h-5 text-tg-text-secondary shrink-0' />
-                  <div className='min-w-0'>
-                    <div className='text-sm truncate'>{currentBot.name}</div>
-                    <div className='text-xs text-tg-text-secondary'>昵称</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-
-        {view === 'contacts' && (
-          <>
-            {subViewHeader('联系人')}
-            <div className='flex-1 overflow-y-auto py-1.5'>
-              {contacts.length === 0 && (
-                <div className='px-4 py-8 text-center text-sm text-tg-text-secondary'>暂无联系人</div>
-              )}
-              {(['friend', 'group'] as const).map((scene) => {
-                const list = contacts.filter(c => c.scene === scene)
-                if (list.length === 0) return null
-                const isCollapsed = !!collapsed[scene]
-                return (
-                  <div key={scene}>
-                    <button
-                      onClick={() => toggleSection(scene)}
-                      className='w-full flex items-center gap-1.5 px-4 pt-3 pb-1 text-xs font-medium text-tg-blue hover:opacity-80 transition-opacity'
-                    >
-                      <ChevronDown className={cn('w-3.5 h-3.5 transition-transform', isCollapsed && '-rotate-90')} />
-                      {scene === 'friend' ? '好友' : '群组'}
-                      <span className='text-tg-text-secondary font-normal'>{list.length}</span>
-                    </button>
-                    {!isCollapsed && list.map((conv) => (
-                      <button
-                        key={conv.key}
-                        onClick={() => {
-                          openConversation(conv.key)
-                          onClose()
-                        }}
-                        className='w-full flex items-center gap-3 px-4 py-2 hover:bg-tg-hover transition-colors'
-                      >
-                        <Avatar url={conv.avatar} name={conv.name} className='w-10 h-10 text-base shrink-0' />
-                        <span className='flex-1 min-w-0 text-left'>
-                          <span className='block text-sm truncate'>{conv.name}</span>
-                          <span className='block text-xs text-tg-text-secondary truncate'>
-                            {conv.scene === 'group' ? `群号: ${conv.peer}` : `账号: ${conv.peer}`}
-                          </span>
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )
-              })}
-            </div>
-          </>
-        )}
-
-        {view === 'settings' && (
-          <>
-            {subViewHeader('设置')}
-            <div className='flex-1 flex flex-col items-center justify-center text-tg-text-secondary select-none'>
-              <Settings className='w-10 h-10 mb-3 opacity-30' />
-              <p className='text-sm'>设置功能开发中</p>
-            </div>
-          </>
-        )}
-      </motion.div>
-    </>
-  )
-}
-
-export const Sidebar: React.FC = () => {
+/** 聊天视图：搜索 + 会话列表 */
+const ChatList: React.FC = () => {
   const {
     currentBot,
     conversations,
     currentKey, openConversation
   } = useChat()
 
-  const [showMenu, setShowMenu] = useState(false)
   const [search, setSearch] = useState('')
 
   const filtered = useMemo(() => {
@@ -290,16 +42,9 @@ export const Sidebar: React.FC = () => {
   }, [conversations, search])
 
   return (
-    <aside className='w-[320px] flex flex-col border-r border-tg-border bg-tg-sidebar shrink-0 relative z-30'>
-      {/* 顶部：菜单 + 搜索 */}
-      <div className='flex items-center gap-2 px-3 py-2.5 shrink-0'>
-        <button
-          onClick={() => setShowMenu(true)}
-          className='p-2.5 rounded-full hover:bg-tg-hover transition-colors text-tg-text-secondary shrink-0'
-          title='菜单'
-        >
-          <Menu className='w-5 h-5' />
-        </button>
+    <>
+      {/* 顶部搜索 */}
+      <div className='flex items-center px-3 py-2.5 shrink-0'>
         <div className='relative flex-1'>
           <Search className='absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-tg-text-secondary pointer-events-none' />
           <input
@@ -310,10 +55,6 @@ export const Sidebar: React.FC = () => {
           />
         </div>
       </div>
-
-      <AnimatePresence>
-        {showMenu && <DrawerMenu onClose={() => setShowMenu(false)} />}
-      </AnimatePresence>
 
       {/* 会话列表 */}
       <div className='flex-1 overflow-y-auto px-2 pb-2'>
@@ -364,6 +105,220 @@ export const Sidebar: React.FC = () => {
           )
         })}
       </div>
+    </>
+  )
+}
+
+/** 联系人视图：好友在前、群在后，分组可折叠 */
+const ContactList: React.FC = () => {
+  const { conversations, openConversation } = useChat()
+  const { setNavView } = useUi()
+  /** 联系人分组的折叠状态（默认展开） */
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+
+  const toggleSection = (key: string) => setCollapsed(prev => ({ ...prev, [key]: !prev[key] }))
+
+  const contacts = useMemo(() => {
+    return [...conversations].sort((a, b) => {
+      if (a.scene !== b.scene) return a.scene === 'friend' ? -1 : 1
+      return a.name.localeCompare(b.name, 'zh-CN')
+    })
+  }, [conversations])
+
+  return (
+    <>
+      <div className='h-14 px-4 flex items-center border-b border-tg-border shrink-0'>
+        <h3 className='text-sm font-semibold'>联系人</h3>
+      </div>
+      <div className='flex-1 overflow-y-auto py-1.5'>
+        {contacts.length === 0 && (
+          <div className='flex flex-col items-center justify-center h-40 text-tg-text-secondary select-none'>
+            <Users className='w-8 h-8 mb-2 opacity-40' />
+            <p className='text-sm'>暂无联系人</p>
+          </div>
+        )}
+        {(['friend', 'group'] as const).map((scene) => {
+          const list = contacts.filter(c => c.scene === scene)
+          if (list.length === 0) return null
+          const isCollapsed = !!collapsed[scene]
+          return (
+            <div key={scene}>
+              <button
+                onClick={() => toggleSection(scene)}
+                className='w-full flex items-center gap-1.5 px-4 pt-3 pb-1 text-xs font-medium text-tg-blue hover:opacity-80 transition-opacity'
+              >
+                <ChevronDown className={cn('w-3.5 h-3.5 transition-transform', isCollapsed && '-rotate-90')} />
+                {scene === 'friend' ? '好友' : '群组'}
+                <span className='text-tg-text-secondary font-normal'>{list.length}</span>
+              </button>
+              {!isCollapsed && list.map((conv) => (
+                <button
+                  key={conv.key}
+                  onClick={() => {
+                    openConversation(conv.key)
+                    setNavView('chats')
+                  }}
+                  className='w-full flex items-center gap-3 px-4 py-2 hover:bg-tg-hover transition-colors'
+                >
+                  <Avatar url={conv.avatar} name={conv.name} className='w-10 h-10 text-base shrink-0' />
+                  <span className='flex-1 min-w-0 text-left'>
+                    <span className='block text-sm truncate'>{conv.name}</span>
+                    <span className='block text-xs text-tg-text-secondary truncate'>
+                      {conv.scene === 'group' ? `群号: ${conv.peer}` : `账号: ${conv.peer}`}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          )
+        })}
+      </div>
+    </>
+  )
+}
+
+/** 设置项开关（TG 风格小滑块） */
+const Switch: React.FC<{ checked: boolean, disabled?: boolean, onChange: (v: boolean) => void }> = ({ checked, disabled, onChange }) => (
+  <button
+    disabled={disabled}
+    onClick={() => onChange(!checked)}
+    className={cn(
+      'w-9 h-5 rounded-full relative transition-colors shrink-0',
+      checked ? 'bg-tg-blue' : 'bg-tg-text-secondary/30',
+      disabled && 'opacity-40 cursor-not-allowed'
+    )}
+  >
+    <span className={cn('absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all', checked ? 'left-[18px]' : 'left-0.5')} />
+  </button>
+)
+
+const PROFILE_CACHE_OPTIONS: { value: ProfileCacheMode, label: string, desc: string }[] = [
+  { value: 'non-qq', label: '仅统计非 QQ 协议 Bot', desc: '默认。QQ 协议自带好友/群列表接口，无需本地统计' },
+  { value: 'all', label: '统计全部 Bot', desc: '所有 Bot 的联系人/群组/群成员都在本地累积' },
+  { value: 'off', label: '关闭统计', desc: '不在本地累积任何联系人/群组数据' }
+]
+
+/** 设置视图：联系人/群组统计模式 + 消息存储（全局开关 + 按 Bot 单独开关） */
+const SettingsView: React.FC = () => {
+  const { bots } = useChat()
+  const { setToast } = useUi()
+  const [settings, setSettings] = useState<BotWebSettings | null>(null)
+
+  useEffect(() => {
+    getSettings().then(setSettings).catch(err => setToast({ message: err.message || '获取设置失败', type: 'error' }))
+  }, [setToast])
+
+  /** 乐观更新 + 落盘，失败回滚 */
+  const update = (patch: Partial<BotWebSettings>) => {
+    if (!settings) return
+    const prev = settings
+    setSettings({ ...prev, ...patch })
+    saveSettings(patch).then(setSettings).catch(err => {
+      setSettings(prev)
+      setToast({ message: err.message || '保存设置失败', type: 'error' })
+    })
+  }
+
+  const toggleStoreBot = (selfId: string, on: boolean) => {
+    if (!settings) return
+    update({
+      messageStoreBots: on
+        ? [...settings.messageStoreBots, selfId]
+        : settings.messageStoreBots.filter(id => id !== selfId)
+    })
+  }
+
+  return (
+    <>
+      <div className='h-14 px-4 flex items-center border-b border-tg-border shrink-0'>
+        <h3 className='text-sm font-semibold'>设置</h3>
+      </div>
+      {!settings
+        ? <div className='flex-1 flex items-center justify-center text-sm text-tg-text-secondary select-none'>加载中…</div>
+        : (
+          <div className='flex-1 overflow-y-auto py-2'>
+            {/* 联系人/群组统计 */}
+            <div className='flex items-center gap-2 px-4 pt-2 pb-1 text-xs font-medium text-tg-text-secondary'>
+              <Database className='w-3.5 h-3.5' />
+              联系人/群组统计
+            </div>
+            {PROFILE_CACHE_OPTIONS.map(opt => {
+              const active = settings.profileCacheMode === opt.value
+              return (
+                <button
+                  key={opt.value}
+                  onClick={() => update({ profileCacheMode: opt.value })}
+                  className='w-full flex items-center gap-3 px-4 py-2.5 hover:bg-tg-hover transition-colors text-left'
+                >
+                  <span className={cn(
+                    'w-[18px] h-[18px] rounded-full border-2 flex items-center justify-center shrink-0 transition-colors',
+                    active ? 'border-tg-blue' : 'border-tg-text-secondary/50'
+                  )}
+                  >
+                    {active && <span className='w-2.5 h-2.5 rounded-full bg-tg-blue' />}
+                  </span>
+                  <span className='min-w-0'>
+                    <span className='block text-sm'>{opt.label}</span>
+                    <span className='block text-xs text-tg-text-secondary'>{opt.desc}</span>
+                  </span>
+                </button>
+              )
+            })}
+
+            <div className='border-t border-tg-border my-2' />
+
+            {/* 消息存储 */}
+            <div className='flex items-center gap-2 px-4 pt-1 pb-1 text-xs font-medium text-tg-text-secondary'>
+              <MessageSquareText className='w-3.5 h-3.5' />
+              消息存储
+            </div>
+            <div className='flex items-center gap-3 px-4 py-2.5'>
+              <span className='flex-1 min-w-0'>
+                <span className='block text-sm'>全局消息存储</span>
+                <span className='block text-xs text-tg-text-secondary'>关闭后所有 Bot 都不存储消息（即使单独开启）</span>
+              </span>
+              <Switch checked={settings.messageStore} onChange={v => update({ messageStore: v })} />
+            </div>
+            <div className={cn(!settings.messageStore && 'opacity-50 pointer-events-none')}>
+              <div className='px-4 pt-1 pb-1 text-xs text-tg-text-secondary'>
+                单独开启的 Bot（全局开启时才生效，默认都不存储）
+              </div>
+              {bots.length === 0 && (
+                <div className='px-4 py-4 text-sm text-tg-text-secondary'>暂无在线 Bot</div>
+              )}
+              {bots.map(b => (
+                <div key={b.selfId} className='flex items-center gap-3 px-4 py-2'>
+                  <Avatar url={b.avatar} name={b.name} className='w-8 h-8 text-xs shrink-0' />
+                  <span className='flex-1 min-w-0'>
+                    <span className='block text-sm truncate'>{b.name}</span>
+                    <span className='block text-xs text-tg-text-secondary truncate'>{b.selfId}</span>
+                  </span>
+                  <Switch
+                    checked={settings.messageStoreBots.includes(b.selfId)}
+                    disabled={!settings.messageStore}
+                    onChange={v => toggleStoreBot(b.selfId, v)}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+          )}
+    </>
+  )
+}
+
+/**
+ * 第二栏（QQ NT 式布局）：随导航栏 navView 切换
+ * 聊天（搜索 + 会话列表）/ 联系人 / 设置
+ */
+export const Sidebar: React.FC = () => {
+  const { navView } = useUi()
+
+  return (
+    <aside className='w-[320px] flex flex-col border-r border-tg-border bg-tg-sidebar shrink-0 relative z-30'>
+      {navView === 'chats' && <ChatList />}
+      {navView === 'contacts' && <ContactList />}
+      {navView === 'settings' && <SettingsView />}
     </aside>
   )
 }
