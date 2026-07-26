@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.0.6](https://github.com/yusheng929/karin-plugin-botweb/compare/core-v1.0.5...core-v1.0.6) (2026-07-26)
+
+
+### 🐛 错误修复
+
+* 优化左侧边栏 ([3ea4e88](https://github.com/yusheng929/karin-plugin-botweb/commit/3ea4e88c6760182c10c31fe5ef43f6b55bb7d61c))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * devDependencies
+    * sandbox-template bumped to 1.0.6
+
 ## [1.0.5](https://github.com/yusheng929/karin-plugin-botweb/compare/core-v1.0.4...core-v1.0.5) (2026-07-25)
 
 
