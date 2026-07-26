@@ -54,8 +54,9 @@ interface UiContextType {
   flashMessage: (messageId: string) => void
 
   // 输入区
-  showSettings: boolean
-  setShowSettings: (v: boolean) => void
+  /** 群资料面板（docked 右侧栏）开关，仅群聊会话显示 */
+  groupPanelOpen: boolean
+  setGroupPanelOpen: (v: boolean) => void
 }
 
 const UiContext = createContext<UiContextType | undefined>(undefined)
@@ -78,7 +79,7 @@ export const UiProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   const [pendingImages, setPendingImages] = useState<File[] | null>(null)
   const [flashMessageId, setFlashMessageId] = useState<string | null>(null)
 
-  const [showSettings, setShowSettings] = useState(false)
+  const [groupPanelOpen, setGroupPanelOpen] = useState(true)
 
   const [navView, setNavView] = useState<'chats' | 'contacts' | 'settings'>('chats')
 
@@ -148,8 +149,8 @@ export const UiProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       setPendingImages,
       flashMessageId,
       flashMessage,
-      showSettings,
-      setShowSettings
+      groupPanelOpen,
+      setGroupPanelOpen
     }}
     >
       {children}

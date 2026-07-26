@@ -283,13 +283,13 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupSt
   const { setConfirmDialog, setContextMenu, setToast, flashMessageId, flashMessage } = useUi()
   const isGroup = message.scene === 'group'
 
-  // 系统消息（戳一戳/撤回提示等）：居中灰色小字，无气泡无头像
+  // 系统消息（戳一戳/撤回提示等）：居中小灰条，无气泡无头像
   if (message.system) {
     return (
       <div className='flex justify-center my-1.5'>
         <span
           data-message-id={message.messageId}
-          className='text-[11px] text-qq-text-secondary select-none'
+          className='text-xs text-qq-text-tertiary select-none'
         >
           {message.elements.map(e => (e.type === 'text' ? e.text : '')).join('')}
         </span>
@@ -303,10 +303,10 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupSt
   const roleBadge = (() => {
     if (!isGroup || !senderMember) return null
     if (senderMember.role === 'owner') {
-      return <span className='text-[10px] px-1 py-px rounded bg-amber-500/15 text-amber-500 font-medium shrink-0'>群主</span>
+      return <span className='role-badge role-badge-owner shrink-0'>群主</span>
     }
     if (senderMember.role === 'admin') {
-      return <span className='text-[10px] px-1 py-px rounded bg-emerald-500/15 text-emerald-500 font-medium shrink-0'>管理员</span>
+      return <span className='role-badge role-badge-admin shrink-0'>管理员</span>
     }
     return null
   })()
@@ -341,7 +341,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupSt
           'mb-1 pl-2 pr-2 py-1 rounded-md text-xs border-l-2 max-w-full truncate cursor-pointer transition-colors',
           isMe
             ? 'bg-white/15 border-white/60 hover:bg-white/25'
-            : 'bg-black/5 dark:bg-white/8 border-qq-blue hover:bg-qq-blue/10'
+            : 'bg-qq-hover border-qq-blue hover:bg-qq-blue/10'
         )}
       >
         <span className={cn('font-medium', isMe ? 'text-qq-bubble-me-text' : 'text-qq-blue')}>{target ? target.senderName : '引用消息'}</span>
@@ -375,7 +375,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupSt
               key={idx}
               className={cn(
                 'flex items-center gap-3 p-2.5 rounded-lg transition-colors cursor-pointer group/file w-full max-w-[280px] my-0.5',
-                isMe ? 'bg-white/15 hover:bg-white/25' : 'bg-black/5 dark:bg-white/8 hover:bg-qq-blue/10'
+                isMe ? 'bg-white/15 hover:bg-white/25' : 'bg-qq-hover hover:bg-qq-blue/10'
               )}
               onClick={() => downloadFile(part.file, part.name)}
             >
@@ -458,7 +458,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupSt
       data-message-id={message.messageId}
       onContextMenu={(e) => openMenu(e, 'message')}
       className={cn(
-        'flex items-start gap-2.5',
+        'flex items-start gap-2.5 -mx-2 px-2 rounded-lg hover:bg-qq-hover transition-colors',
         isMe ? 'flex-row-reverse' : 'flex-row',
         groupEnd ? 'mb-3' : 'mb-1',
         flashMessageId === message.messageId && 'highlight-msg'
@@ -492,7 +492,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupSt
             title={formatFullTime(message.time)}
             className={cn(
               'bubble min-w-0 max-w-full text-[14px] leading-[1.6] break-words',
-              message.recalled && 'opacity-60',
+              message.recalled && 'opacity-60 border border-qq-badge/60',
               isPureMedia || isForwardOnly
                 ? 'overflow-hidden rounded-xl'
                 : cn(
@@ -508,9 +508,9 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupSt
           {statusIcon}
         </div>
 
-        {/* 已撤回标记：气泡下方灰色小字（对齐方向跟随 isMe，由父容器 items-end/start 控制） */}
+        {/* 已撤回标记：气泡下方红色小字（对齐方向跟随 isMe，由父容器 items-end/start 控制） */}
         {message.recalled && (
-          <span className='mt-1 text-[11px] text-qq-text-secondary select-none'>此消息已被撤回</span>
+          <span className='mt-1 text-[11px] text-qq-badge select-none'>消息已撤回</span>
         )}
       </div>
     </div>

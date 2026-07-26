@@ -38,10 +38,10 @@ export const LoginScreen: React.FC = () => {
 
         <div className='px-9 pb-9 pt-4'>
           <div className='flex flex-col items-center mb-8'>
-            <div className='w-[76px] h-[76px] rounded-full bg-gradient-to-b from-[#3cbaff] to-qq-blue flex items-center justify-center mb-4 shadow-lg shadow-qq-blue/30'>
+            <div className='w-[76px] h-[76px] rounded-full bg-gradient-to-b from-qq-blue/70 to-qq-blue flex items-center justify-center mb-4 shadow-lg shadow-qq-blue/30'>
               <Send className='w-8 h-8 text-white -ml-1' />
             </div>
-            <h1 className='text-[19px] font-semibold tracking-wide'>BotWeb</h1>
+            <h1 className='text-[19px] font-semibold tracking-wide text-qq-text'>BotWeb</h1>
             <p className='text-xs text-qq-text-secondary mt-1.5'>请输入 HTTP_AUTH_KEY 登录</p>
           </div>
 

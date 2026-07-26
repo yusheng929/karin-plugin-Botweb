@@ -14,6 +14,7 @@
   --color-qq-border: var(--qq-border);
   --color-qq-text: var(--qq-text);
   --color-qq-text-secondary: var(--qq-text-secondary);
+  --color-qq-text-tertiary: var(--qq-text-tertiary);
   --color-qq-hover: var(--qq-hover);
   --color-qq-active: var(--qq-active);
   --color-qq-bubble-me: var(--qq-bubble-me);
@@ -21,60 +22,74 @@
   --color-qq-bubble-them: var(--qq-bubble-them);
   --color-qq-bubble-them-text: var(--qq-bubble-them-text);
   --color-qq-badge: var(--qq-badge);
+  --color-qq-badge-muted: var(--qq-badge-muted);
+  --color-qq-owner: var(--qq-owner);
   --color-qq-chat-bg: var(--qq-chat-bg);
   --color-qq-divider: var(--qq-divider);
   --color-qq-input: var(--qq-input);
+  --color-qq-pill-bg: var(--qq-pill-bg);
+  --color-qq-pill-text: var(--qq-pill-text);
 }
 
 /*
- * Mac 版 QQ（NT）浅色主题：
- * 白色聊天区 + 浅灰功能栏/会话栏、QQ 品牌蓝 #0099ff、
- * 他人气泡浅灰、自己气泡品牌蓝、hairline 分隔线
+ * Mac 版 QQ（NT）亮色主题：
+ * 浅灰功能栏/白色会话栏 + 浅灰聊天底、QQ 品牌蓝 #0099ff、
+ * 他人气泡白色 + 细边框、自己气泡品牌蓝、hairline 分隔线
  */
 :root {
   --qq-blue: #0099ff;
   --qq-blue-hover: #33adff;
-  --qq-bg: #ffffff;
-  --qq-sidebar: #f4f4f6;
-  --qq-rail: #ececf0;
+  --qq-bg: #f7f7f7;
+  --qq-sidebar: #f7f7f7;
+  --qq-rail: #ededed;
   --qq-border: rgba(0, 0, 0, 0.06);
-  --qq-text: #1f1f1f;
-  --qq-text-secondary: #999999;
-  --qq-hover: rgba(0, 0, 0, 0.05);
-  --qq-active: #0099ff;
+  --qq-text: #1a1a1a;
+  --qq-text-secondary: #8a8a8a;
+  --qq-text-tertiary: #b3b3b3;
+  --qq-hover: rgba(0, 0, 0, 0.04);
+  --qq-active: #e3e3e3;
   --qq-bubble-me: #0099ff;
   --qq-bubble-me-text: #ffffff;
-  --qq-bubble-them: #f1f1f2;
-  --qq-bubble-them-text: #1f1f1f;
-  --qq-badge: #ff4d4f;
-  --qq-chat-bg: #ffffff;
+  --qq-bubble-them: #ffffff;
+  --qq-bubble-them-text: #1a1a1a;
+  --qq-badge: #ff3b30;
+  --qq-badge-muted: #d8d8d8;
+  --qq-owner: #ff9f43;
+  --qq-chat-bg: #f2f2f2;
   --qq-divider: rgba(0, 0, 0, 0.06);
   --qq-input: rgba(0, 0, 0, 0.05);
+  --qq-pill-bg: rgba(0, 0, 0, 0.08);
+  --qq-pill-text: #8a8a8a;
   --qq-glass: rgba(246, 246, 248, 0.82);
   --qq-glass-border: rgba(0, 0, 0, 0.08);
   --qq-scrollbar: rgba(0, 0, 0, 0.2);
 }
 
-/* Mac 版 QQ（NT）深色主题：近黑分层灰 + 同款蓝 */
+/* Mac 版 QQ（NT）深色主题（按设计图取色）：近黑分层灰 + 同款蓝 */
 .dark {
-  --qq-blue: #0a84ff;
-  --qq-blue-hover: #3396ff;
-  --qq-bg: #1c1c1e;
-  --qq-sidebar: #202022;
-  --qq-rail: #19191b;
-  --qq-border: rgba(255, 255, 255, 0.08);
-  --qq-text: #f0f0f2;
-  --qq-text-secondary: #8e8e93;
-  --qq-hover: rgba(255, 255, 255, 0.07);
-  --qq-active: #0a84ff;
+  --qq-blue: #0099ff;
+  --qq-blue-hover: #33adff;
+  --qq-bg: #1f1f1f;
+  --qq-sidebar: #1f1f1f;
+  --qq-rail: #1a1a1a;
+  --qq-border: rgba(255, 255, 255, 0.06);
+  --qq-text: #e8e8e8;
+  --qq-text-secondary: #8a8a8a;
+  --qq-text-tertiary: #5c5c5c;
+  --qq-hover: rgba(255, 255, 255, 0.05);
+  --qq-active: #363636;
   --qq-bubble-me: #0a84ff;
   --qq-bubble-me-text: #ffffff;
-  --qq-bubble-them: #2c2c2e;
-  --qq-bubble-them-text: #f0f0f2;
-  --qq-badge: #ff453a;
-  --qq-chat-bg: #161618;
-  --qq-divider: rgba(255, 255, 255, 0.08);
+  --qq-bubble-them: #333333;
+  --qq-bubble-them-text: #e8e8e8;
+  --qq-badge: #ff3b30;
+  --qq-badge-muted: #4a4a4a;
+  --qq-owner: #ff9f43;
+  --qq-chat-bg: #262626;
+  --qq-divider: rgba(255, 255, 255, 0.06);
   --qq-input: rgba(255, 255, 255, 0.07);
+  --qq-pill-bg: rgba(0, 0, 0, 0.35);
+  --qq-pill-text: #999999;
   --qq-glass: rgba(40, 40, 44, 0.86);
   --qq-glass-border: rgba(255, 255, 255, 0.1);
   --qq-scrollbar: rgba(255, 255, 255, 0.22);
@@ -277,6 +292,61 @@ body {
 .bubble {
   position: relative;
   border-radius: 12px;
+}
+
+/* 消息区居中时间分隔胶囊（设计图样式：深色半透明小胶囊） */
+.time-pill {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--qq-pill-bg);
+  color: var(--qq-pill-text);
+  font-size: 11px;
+  line-height: 1.5;
+  user-select: none;
+}
+
+/* 群成员角色徽章（群主橙 / 管理员蓝，小胶囊） */
+.role-badge {
+  display: inline-block;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 16px;
+  font-weight: 500;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.role-badge-owner {
+  color: var(--qq-owner);
+  background: color-mix(in srgb, var(--qq-owner) 16%, transparent);
+}
+
+.role-badge-admin {
+  color: var(--qq-blue);
+  background: color-mix(in srgb, var(--qq-blue) 14%, transparent);
+}
+
+/* 未读数胶囊（红色普通 / 灰色免打扰） */
+.unread-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--qq-badge);
+  color: #ffffff;
+  font-size: 11px;
+  line-height: 1;
+  user-select: none;
+}
+
+.unread-pill-muted {
+  background: var(--qq-badge-muted);
+  color: var(--qq-text-secondary);
 }
 
 /* 回复跳转高亮 */

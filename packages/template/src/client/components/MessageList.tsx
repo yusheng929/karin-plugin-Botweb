@@ -9,7 +9,7 @@ const STICK_THRESHOLD = 80
 /** 同发送者连续消息归为一组的时间窗口 */
 const GROUP_WINDOW = 300_000
 
-/** 相邻消息间隔超过该值时插入居中时间戳（QQ NT 风格灰字） */
+/** 相邻消息间隔超过该值时插入居中时间胶囊（QQ NT 风格） */
 const TIME_DIVIDER_GAP = 300_000
 
 const isSameDay = (a: number, b: number) => new Date(a).toDateString() === new Date(b).toDateString()
@@ -87,7 +87,7 @@ export const MessageList: React.FC = () => {
         {messages.map((m, index) => {
           const prevMsg = messages[index - 1]
           const nextMsg = messages[index + 1]
-          // QQ NT：首条 / 跨天 / 间隔超 5 分钟时插入居中灰字时间戳
+          // QQ NT：首条 / 跨天 / 间隔超 5 分钟时插入居中时间胶囊
           const showTime = !prevMsg ||
             !isSameDay(toMillis(prevMsg.time), toMillis(m.time)) ||
             toMillis(m.time) - toMillis(prevMsg.time) >= TIME_DIVIDER_GAP
@@ -99,7 +99,7 @@ export const MessageList: React.FC = () => {
             <React.Fragment key={m.messageId || index}>
               {showTime && (
                 <div className='flex justify-center my-3 select-none'>
-                  <span className='text-[11px] text-qq-text-secondary'>
+                  <span className='time-pill'>
                     {formatTimeDivider(m.time)}
                   </span>
                 </div>

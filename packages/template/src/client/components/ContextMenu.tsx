@@ -58,7 +58,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, items, onClose }
   return (
     <div
       ref={menuRef}
-      className='fixed w-44 glass rounded-[10px] shadow-xl p-1 animate-in fade-in zoom-in-95 duration-100 z-[400]'
+      className='fixed w-44 glass rounded-xl shadow-2xl p-1 animate-in fade-in zoom-in-95 duration-100 z-[400]'
       style={{ left: pos.left, top: pos.top }}
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
@@ -71,10 +71,8 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, items, onClose }
             item.onClick()
           }}
           className={cn(
-            'w-full flex items-center gap-2.5 px-2.5 py-1.5 text-[13px] rounded-md transition-colors',
-            item.danger
-              ? 'text-qq-badge hover:bg-qq-badge hover:text-white'
-              : 'text-qq-text hover:bg-qq-blue hover:text-white'
+            'w-full flex items-center gap-2.5 px-2.5 py-1.5 text-[13px] rounded-lg transition-colors hover:bg-qq-hover',
+            item.danger ? 'text-qq-badge' : 'text-qq-text'
           )}
         >
           {item.icon}

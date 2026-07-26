@@ -5,8 +5,11 @@ import {
   ChevronDown,
   Users,
   Database,
-  MessageSquareText
+  MessageSquareText,
+  Plus,
+  Check
 } from 'lucide-react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useChat, Conversation } from '../state/chat'
 import { useUi } from '../state/ui'
 import { getMessageSummary, toMillis, cn } from '../utils'
@@ -28,20 +31,101 @@ const formatListTime = (time?: number) => {
   return `${d.getMonth() + 1}月${d.getDate()}日`
 }
 
-/** macOS 风搜索框（圆角矩形、灰底、内嵌放大镜） */
-const SearchField: React.FC<{ value: string, onChange: (v: string) => void }> = ({ value, onChange }) => (
-  <div className='relative flex-1'>
-    <Search className='absolute left-2.5 top-1/2 -translate-y-1/2 w-[15px] h-[15px] text-qq-text-secondary pointer-events-none' />
-    <input
-      value={value}
-      onChange={e => onChange(e.target.value)}
-      placeholder='搜索'
-      className='w-full h-[30px] pl-8 pr-3 rounded-lg bg-qq-input text-[13px] outline-none placeholder:text-qq-text-secondary focus:ring-2 focus:ring-qq-blue/40 transition-shadow'
-    />
+/** 顶部机器人资料卡：头像（右下角在线状态点）+ 昵称 + 协议/账号签名，点击弹出账号切换列表 */
+const ProfileCard: React.FC = () => {
+  const { bots, currentBot, selectBot, botUnread } = useChat()
+  const [open, setOpen] = useState(false)
+
+  return (
+    <div className='relative shrink-0'>
+      <button
+        onClick={() => setOpen(v => !v)}
+        className='w-full flex items-center gap-2.5 px-3 pt-3 pb-2 hover:bg-qq-hover transition-colors text-left'
+        title='切换账号'
+      >
+        <span className='relative shrink-0'>
+          <Avatar url={currentBot?.avatar} name={currentBot?.name || '?'} className='w-10 h-10 text-sm' />
+          {/* 在线状态点（绿色为固定语义色，两主题通用） */}
+          <span className='absolute -bottom-px -right-px w-3 h-3 rounded-full bg-green-500 ring-2 ring-qq-sidebar' />
+        </span>
+        <span className='min-w-0 flex-1'>
+          <span className='block text-[14px] font-semibold truncate'>{currentBot?.name || '未连接 Bot'}</span>
+          <span className='block text-xs text-qq-text-secondary truncate'>
+            {currentBot ? `${currentBot.protocol} · ${currentBot.selfId}` : '暂无在线 Bot'}
+          </span>
+        </span>
+      </button>
+
+      {/* 遮罩：点击空白处关闭弹层 */}
+      {open && <div className='fixed inset-0 z-40' onClick={() => setOpen(false)} />}
+
+      {/* 账号切换弹层 */}
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -6, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.98 }}
+            transition={{ duration: 0.15 }}
+            className='absolute left-2 right-2 top-full mt-1 z-50 glass rounded-xl shadow-2xl py-1 overflow-hidden'
+          >
+            {bots.length === 0 && (
+              <div className='px-4 py-6 text-center text-[13px] text-qq-text-secondary'>暂无在线 Bot</div>
+            )}
+            {bots.map((b) => {
+              const isCurrent = b.selfId === currentBot?.selfId
+              const unread = !isCurrent ? (botUnread[b.selfId] || 0) : 0
+              return (
+                <button
+                  key={b.selfId}
+                  onClick={() => {
+                    if (!isCurrent) selectBot(b.selfId)
+                    setOpen(false)
+                  }}
+                  className='w-[calc(100%-0.5rem)] mx-1 flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-qq-hover transition-colors'
+                >
+                  <Avatar url={b.avatar} name={b.name} className='w-8 h-8 text-sm' />
+                  <span className='flex-1 min-w-0 text-left'>
+                    <span className='block text-[13px] truncate'>{b.name}</span>
+                    <span className='block text-xs text-qq-text-secondary truncate'>{b.selfId}</span>
+                  </span>
+                  {unread > 0 && (
+                    <span className='unread-pill shrink-0'>{unread > 99 ? '99+' : unread}</span>
+                  )}
+                  {isCurrent && <Check className='w-4 h-4 text-qq-blue shrink-0' />}
+                </button>
+              )
+            })}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+/** 搜索行：圆角搜索框 + 方形「+」刷新按钮（QQ NT 第二栏头部） */
+const SearchRow: React.FC<{ value: string, onChange: (v: string) => void }> = ({ value, onChange }) => (
+  <div className='flex items-center gap-2 px-3 pt-1.5 pb-2 shrink-0'>
+    <div className='relative flex-1'>
+      <Search className='absolute left-2.5 top-1/2 -translate-y-1/2 w-[15px] h-[15px] text-qq-text-secondary pointer-events-none' />
+      <input
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder='搜索'
+        className='w-full h-[30px] pl-8 pr-3 rounded-lg bg-qq-input text-[13px] outline-none placeholder:text-qq-text-secondary focus:ring-2 focus:ring-qq-blue/40 transition-shadow'
+      />
+    </div>
+    <button
+      title='刷新数据'
+      onClick={() => window.location.reload()}
+      className='w-[30px] h-[30px] rounded-lg bg-qq-input flex items-center justify-center text-qq-text-secondary hover:bg-qq-hover hover:text-qq-text transition-colors shrink-0'
+    >
+      <Plus className='w-4 h-4' />
+    </button>
   </div>
 )
 
-/** 聊天视图：搜索 + 会话列表（QQ NT：选中行整块品牌蓝、白字） */
+/** 聊天视图：搜索 + 会话列表（QQ NT：选中行灰底，未读数红色胶囊） */
 const ChatList: React.FC = () => {
   const {
     currentBot,
@@ -59,10 +143,7 @@ const ChatList: React.FC = () => {
 
   return (
     <>
-      {/* 顶部搜索 */}
-      <div className='flex items-center px-3 pt-3 pb-2 shrink-0'>
-        <SearchField value={search} onChange={setSearch} />
-      </div>
+      <SearchRow value={search} onChange={setSearch} />
 
       {/* 会话列表 */}
       <div className='flex-1 overflow-y-auto px-2 pb-2'>
@@ -79,31 +160,27 @@ const ChatList: React.FC = () => {
               key={conv.key}
               onClick={() => openConversation(conv.key)}
               className={cn(
-                'px-2.5 py-2 rounded-[10px] flex items-center gap-2.5 cursor-pointer transition-colors',
-                isActive ? 'bg-qq-active text-white' : 'hover:bg-qq-hover'
+                'px-2.5 py-2 rounded-xl flex items-center gap-2.5 cursor-pointer transition-colors',
+                isActive ? 'bg-qq-active' : 'hover:bg-qq-hover'
               )}
             >
-              <Avatar url={conv.avatar} name={conv.name} className='w-11 h-11 text-base shrink-0' />
+              <Avatar url={conv.avatar} name={conv.name} className='w-10 h-10 text-sm shrink-0' />
               <div className='min-w-0 flex-1'>
                 <div className='flex justify-between items-baseline gap-2'>
-                  <span className={cn('text-[14px] truncate', isActive ? 'text-white' : 'text-qq-text')}>
+                  <span className='text-[14px] font-medium truncate text-qq-text'>
                     {conv.name}
                   </span>
-                  <span className={cn('text-[11px] shrink-0', isActive ? 'text-white/70' : 'text-qq-text-secondary')}>
+                  <span className='text-[11px] shrink-0 text-qq-text-tertiary'>
                     {formatListTime(conv.lastMsg?.time)}
                   </span>
                 </div>
                 <div className='flex items-center gap-2 mt-[3px]'>
-                  <p className={cn('text-xs truncate flex-1', isActive ? 'text-white/75' : 'text-qq-text-secondary')}>
+                  <p className='text-xs truncate flex-1 text-qq-text-secondary'>
                     {conv.lastMsg?.recalled && <span className='opacity-70'>[已撤回] </span>}
                     {getMessageSummary(conv.lastMsg?.elements)}
                   </p>
                   {conv.unreadCount > 0 && (
-                    <span className={cn(
-                      'text-[10px] min-w-[18px] h-[18px] rounded-full flex items-center justify-center px-1 font-medium shrink-0',
-                      isActive ? 'bg-white text-qq-blue' : 'bg-qq-badge text-white'
-                    )}
-                    >
+                    <span className='unread-pill shrink-0'>
                       {conv.unreadCount > 99 ? '99+' : conv.unreadCount}
                     </span>
                   )}
@@ -140,9 +217,7 @@ const ContactList: React.FC = () => {
 
   return (
     <>
-      <div className='flex items-center px-3 pt-3 pb-2 shrink-0'>
-        <SearchField value={search} onChange={setSearch} />
-      </div>
+      <SearchRow value={search} onChange={setSearch} />
       <div className='flex-1 overflow-y-auto px-2 pb-2'>
         {contacts.length === 0 && (
           <div className='flex flex-col items-center justify-center h-40 text-qq-text-secondary select-none'>
@@ -171,7 +246,7 @@ const ContactList: React.FC = () => {
                     openConversation(conv.key)
                     setNavView('chats')
                   }}
-                  className='w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-[10px] hover:bg-qq-hover transition-colors'
+                  className='w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-qq-hover transition-colors'
                 >
                   <Avatar url={conv.avatar} name={conv.name} className='w-9 h-9 text-sm shrink-0' />
                   <span className='flex-1 min-w-0 text-left'>
@@ -241,7 +316,7 @@ const SettingsView: React.FC = () => {
 
   return (
     <>
-      <div className='h-[52px] px-4 flex items-center shrink-0'>
+      <div className='h-[44px] px-4 flex items-center shrink-0'>
         <h3 className='text-[15px] font-semibold'>设置</h3>
       </div>
       {!settings
@@ -253,7 +328,7 @@ const SettingsView: React.FC = () => {
               <Database className='w-3.5 h-3.5' />
               联系人/群组统计
             </div>
-            <div className='mx-3 rounded-[10px] bg-qq-bg overflow-hidden divide-y divide-qq-divider shadow-[0_0_0_0.5px_var(--qq-border)]'>
+            <div className='mx-3 rounded-xl bg-qq-input overflow-hidden divide-y divide-qq-divider'>
               {PROFILE_CACHE_OPTIONS.map(opt => {
                 const active = settings.profileCacheMode === opt.value
                 return (
@@ -283,7 +358,7 @@ const SettingsView: React.FC = () => {
               <MessageSquareText className='w-3.5 h-3.5' />
               消息存储
             </div>
-            <div className='mx-3 rounded-[10px] bg-qq-bg overflow-hidden divide-y divide-qq-divider shadow-[0_0_0_0.5px_var(--qq-border)]'>
+            <div className='mx-3 rounded-xl bg-qq-input overflow-hidden divide-y divide-qq-divider'>
               <div className='flex items-center gap-3 px-3.5 py-2.5'>
                 <span className='flex-1 min-w-0'>
                   <span className='block text-[13px]'>全局消息存储</span>
@@ -321,7 +396,8 @@ const SettingsView: React.FC = () => {
 }
 
 /**
- * 第二栏（QQ NT 式布局）：随导航栏 navView 切换
+ * 第二栏（QQ NT 式布局，280px）：
+ * 顶部机器人资料卡（点击切换账号），其下随导航栏 navView 切换
  * 聊天（搜索 + 会话列表）/ 联系人 / 设置
  */
 export const Sidebar: React.FC = () => {
@@ -329,6 +405,7 @@ export const Sidebar: React.FC = () => {
 
   return (
     <aside className='w-[280px] flex flex-col border-r border-qq-border bg-qq-sidebar shrink-0 relative z-30'>
+      <ProfileCard />
       {navView === 'chats' && <ChatList />}
       {navView === 'contacts' && <ContactList />}
       {navView === 'settings' && <SettingsView />}

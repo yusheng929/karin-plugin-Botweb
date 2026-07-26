@@ -369,14 +369,14 @@ export const InputArea: React.FC = () => {
     }
   }
 
-  /** 工具条图标按钮 */
+  /** 工具条图标按钮（QQ NT 式线性图标：32px 方形、圆角、hover 灰底） */
   const toolButton = (icon: React.ReactNode, label: string, onClick: (e: React.MouseEvent) => void, active = false, disabled = false) => (
     <button
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'p-1.5 rounded-md transition-colors shrink-0',
-        active ? 'text-qq-blue bg-qq-blue/12' : 'text-qq-text-secondary hover:bg-qq-hover hover:text-qq-text',
+        'w-8 h-8 flex items-center justify-center rounded-lg transition-colors shrink-0',
+        active ? 'bg-qq-active text-qq-text' : 'text-qq-text-secondary hover:bg-qq-hover hover:text-qq-text',
         disabled && 'opacity-40 cursor-not-allowed'
       )}
       title={label}
@@ -428,16 +428,16 @@ export const InputArea: React.FC = () => {
         </div>
       )}
 
-      {/* 待回复状态条 */}
+      {/* 待回复状态条（引用样式：左侧品牌蓝竖条 + 次级底色） */}
       {replyTo && (
-        <div className='mx-3 mt-2 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-qq-input text-xs'>
+        <div className='mx-3 mt-2 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-qq-hover text-xs'>
           <span className='flex-1 min-w-0 truncate border-l-2 border-qq-blue pl-2'>
-            <span className='text-qq-blue font-medium'>{replyTo.senderName}</span>
+            <span className='text-qq-text font-medium'>{replyTo.senderName}</span>
             <span className='text-qq-text-secondary'> {getMessageSummary(replyTo.elements)}</span>
           </span>
           <button
             onClick={() => setReplyTo(null)}
-            className='p-0.5 rounded-full hover:bg-qq-hover transition-colors shrink-0 text-qq-text-secondary'
+            className='p-0.5 rounded-full hover:bg-qq-active transition-colors shrink-0 text-qq-text-secondary'
             title='取消回复'
           >
             <X className='w-3.5 h-3.5' />
@@ -445,10 +445,10 @@ export const InputArea: React.FC = () => {
         </div>
       )}
 
-      {/* 工具条：表情 / 图片 / 文件（QQ NT 顶部工具排） */}
-      <div className='flex items-center gap-0.5 px-3 pt-1.5'>
+      {/* 工具条：表情 / 图片 / 文件（QQ NT 顶部线性图标排，与编辑器之间 hairline 分隔） */}
+      <div className='flex items-center gap-1 px-3 py-1.5 border-b border-qq-border'>
         {toolButton(
-          <Smile className='w-5 h-5' strokeWidth={1.8} />,
+          <Smile className='w-[18px] h-[18px]' strokeWidth={1.6} />,
           '表情',
           () => {
             setAtMenu(null)
@@ -458,14 +458,14 @@ export const InputArea: React.FC = () => {
           !currentConversation
         )}
         {toolButton(
-          <ImageIcon className='w-5 h-5' strokeWidth={1.8} />,
+          <ImageIcon className='w-[18px] h-[18px]' strokeWidth={1.6} />,
           '图片',
           () => pickFiles('image'),
           false,
           !currentConversation
         )}
         {toolButton(
-          <FolderOpen className='w-5 h-5' strokeWidth={1.8} />,
+          <FolderOpen className='w-[18px] h-[18px]' strokeWidth={1.6} />,
           '文件',
           () => pickFiles('file'),
           false,
@@ -483,7 +483,7 @@ export const InputArea: React.FC = () => {
         onClick={() => editorRef.current?.focus()}
         data-placeholder={!currentConversation ? '选择一个会话开始聊天' : ''}
         className={cn(
-          'rich-input mx-4 mt-1 text-[14px] outline-none min-h-[56px] max-h-36 overflow-y-auto whitespace-pre-wrap break-words leading-relaxed',
+          'rich-input mx-4 mt-1.5 text-[14px] outline-none min-h-[56px] max-h-36 overflow-y-auto whitespace-pre-wrap break-words leading-relaxed',
           !currentConversation && 'opacity-50 cursor-not-allowed'
         )}
       />

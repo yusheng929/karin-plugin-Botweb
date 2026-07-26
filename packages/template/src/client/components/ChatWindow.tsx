@@ -1,16 +1,16 @@
 import React, { useState } from 'react'
-import { Bot, Upload, MoreHorizontal, MessageCircle } from 'lucide-react'
+import { Bot, Upload, Users, MessageCircle } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useChat } from '../state/chat'
 import { useUi } from '../state/ui'
 import { cn } from '../utils'
 import { MessageList } from './MessageList'
 import { InputArea } from './InputArea'
-import { ChatDetailsSidebar } from './ChatDetailsSidebar'
+import { GroupPanel } from './GroupPanel'
 
 export const ChatWindow: React.FC = () => {
   const { currentConversation, currentBot, groupMembers, handleFiles } = useChat()
-  const { showSettings, setShowSettings, setPendingImages } = useUi()
+  const { groupPanelOpen, setGroupPanelOpen, setPendingImages } = useUi()
   const [isDragging, setIsDragging] = useState(false)
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -62,9 +62,7 @@ export const ChatWindow: React.FC = () => {
     )
   }
 
-  const subtitle = currentConversation.scene === 'group'
-    ? `${groupMembers.length > 0 ? `${groupMembers.length} 人` : '群聊'}`
-    : ''
+  const isGroup = currentConversation.scene === 'group'
 
   return (
     <main
@@ -91,63 +89,45 @@ export const ChatWindow: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* 顶栏：白底 hairline，标题 + 群人数，右侧「···」打开会话资料 */}
-      <header className='h-[60px] px-5 flex items-center justify-between bg-qq-chat-bg border-b border-qq-border shrink-0 z-20'>
+      {/* 顶栏：会话名 + 群人数，右侧成员面板开关（仅群聊显示） */}
+      <header className='h-[56px] px-5 flex items-center justify-between bg-qq-chat-bg border-b border-qq-border shrink-0 z-20'>
         <div className='flex items-baseline gap-2 min-w-0'>
           <h2 className='text-[16px] font-semibold truncate leading-tight'>
             {currentConversation.name}
           </h2>
-          {subtitle && (
+          {isGroup && (
             <span className='text-xs text-qq-text-secondary leading-tight shrink-0'>
-              ({subtitle})
+              ({groupMembers.length})
             </span>
           )}
         </div>
-        <button
-          onClick={() => setShowSettings(!showSettings)}
-          className={cn(
-            'p-1.5 rounded-lg transition-colors shrink-0',
-            showSettings ? 'bg-qq-hover text-qq-blue' : 'text-qq-text-secondary hover:bg-qq-hover'
-          )}
-          title='会话资料'
-        >
-          <MoreHorizontal className='w-5 h-5' />
-        </button>
+        {isGroup && (
+          <button
+            onClick={() => setGroupPanelOpen(!groupPanelOpen)}
+            className={cn(
+              'p-1.5 rounded-lg transition-colors shrink-0',
+              groupPanelOpen ? 'text-qq-blue' : 'text-qq-text-secondary hover:bg-qq-hover'
+            )}
+            title='群资料面板'
+          >
+            <Users className='w-5 h-5' />
+          </button>
+        )}
       </header>
 
-      <div className='flex-1 overflow-hidden relative flex flex-col'>
-        <MessageList />
+      {/* 主体：左列消息列表 + 输入框，右侧 docked 群资料面板 */}
+      <div className='flex-1 min-h-0 flex'>
+        <div className='flex-1 min-w-0 flex flex-col relative'>
+          <div className='flex-1 overflow-hidden relative flex flex-col'>
+            <MessageList />
+          </div>
 
-        <AnimatePresence>
-          {showSettings && (
-            <motion.div
-              key='settings-backdrop'
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onMouseDown={() => setShowSettings(false)}
-              className='absolute inset-0 bg-black/10 z-25'
-            />
-          )}
-          {showSettings && (
-            <motion.div
-              key='settings-panel'
-              initial={{ x: '100%' }}
-              animate={{ x: 0 }}
-              exit={{ x: '100%' }}
-              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              onMouseDown={(e) => e.stopPropagation()}
-              onClick={(e) => e.stopPropagation()}
-              className='absolute top-0 right-0 bottom-0 z-30'
-            >
-              <ChatDetailsSidebar />
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+          <div className='relative z-10'>
+            <InputArea />
+          </div>
+        </div>
 
-      <div className='relative z-10'>
-        <InputArea />
+        {isGroup && groupPanelOpen && <GroupPanel />}
       </div>
     </main>
   )

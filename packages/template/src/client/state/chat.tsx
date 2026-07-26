@@ -161,7 +161,7 @@ const unreadReducer = (state: UnreadState, action: UnreadAction): UnreadState =>
 
 export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const {
-    setToast, setReplyTo, setContextMenu, setShowSettings
+    setToast, setReplyTo, setContextMenu
   } = useUi()
 
   const [bots, setBots] = useState<BotInfo[]>([])
@@ -268,14 +268,13 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setGroupMembers([])
     setReplyTo(null)
     setContextMenu(null)
-    setShowSettings(false)
     Promise.all([api.getFriends(currentBotId), api.getGroups(currentBotId)])
       .then(([friendList, groupList]) => {
         setFriends(friendList)
         setGroups(groupList)
       })
       .catch(err => setToast({ message: `获取联系人失败: ${err.message}`, type: 'error' }))
-  }, [currentBotId, setToast, setReplyTo, setContextMenu, setShowSettings])
+  }, [currentBotId, setToast, setReplyTo, setContextMenu])
 
   // 未读持久化（按 bot 存到 localStorage）
   useEffect(() => {
@@ -538,8 +537,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setCurrentKey(key)
     setReplyTo(null)
     setContextMenu(null)
-    setShowSettings(false)
-  }, [setReplyTo, setContextMenu, setShowSettings])
+  }, [setReplyTo, setContextMenu])
 
   // ---------- 发送 / 撤回 ----------
 

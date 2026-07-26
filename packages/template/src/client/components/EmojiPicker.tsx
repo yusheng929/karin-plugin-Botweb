@@ -163,7 +163,7 @@ export const EmojiPicker: React.FC<EmojiPickerProps> = ({ onSelect, onSelectFace
               )
             : EMOJI_GROUPS.map(group => (
               <div key={group.name} className='p-2 pb-1'>
-                <div className='px-2 py-1 text-xs text-qq-text-secondary'>
+                <div className='px-2 py-1 text-xs text-qq-text-tertiary'>
                   {group.name}
                 </div>
                 <div className='grid grid-cols-8'>

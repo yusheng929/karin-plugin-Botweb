@@ -223,7 +223,7 @@ export const Overlays: React.FC = () => {
           onContextMenu={(e) => e.preventDefault()}
         >
           <div
-            className='glass rounded-2xl shadow-2xl w-full max-w-[520px] max-h-[75vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200'
+            className='glass rounded-xl shadow-2xl w-full max-w-[520px] max-h-[75vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200'
             onClick={(e) => e.stopPropagation()}
           >
             <div className='flex items-center justify-between px-4 py-3 border-b border-qq-border/40 shrink-0'>
@@ -256,10 +256,10 @@ export const Overlays: React.FC = () => {
         </div>
       )}
 
-      {/* Toast（Mac QQ 风格底部毛玻璃浮条） */}
+      {/* Toast（Mac QQ 风格底部居中毛玻璃小胶囊） */}
       {toast && (
         <div className='fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] animate-in slide-in-from-bottom-3 fade-in duration-200'>
-          <div className='glass text-qq-text px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-2.5'>
+          <div className='glass text-qq-text px-4 py-2 rounded-full shadow-xl flex items-center gap-2.5'>
             <div className={cn('w-2 h-2 rounded-full shrink-0',
               toast.type === 'error' ? 'bg-qq-badge' : 'bg-qq-blue')}
             />
@@ -268,18 +268,18 @@ export const Overlays: React.FC = () => {
         </div>
       )}
 
-      {/* Confirm Dialog（macOS 告警框：居中内容 + hairline 分隔的等宽按钮） */}
+      {/* Confirm Dialog（macOS 告警框：标题粗体居中 + 主色确认/灰色取消按钮） */}
       {confirmDialog && (
         <div className='fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/30 animate-in fade-in duration-150'>
-          <div className='w-full max-w-[270px] glass rounded-2xl shadow-2xl animate-in zoom-in-95 duration-150 overflow-hidden'>
+          <div className='w-full max-w-[270px] glass rounded-xl shadow-2xl animate-in zoom-in-95 duration-150 overflow-hidden'>
             <div className='px-5 pt-5 pb-4 text-center'>
               <h3 className='text-[15px] font-semibold mb-1.5'>{confirmDialog.title}</h3>
               <p className='text-xs text-qq-text-secondary leading-relaxed'>{confirmDialog.message}</p>
             </div>
-            <div className='flex border-t border-qq-divider divide-x divide-qq-divider'>
+            <div className='flex gap-2.5 px-5 pb-5'>
               <button
                 onClick={() => setConfirmDialog(null)}
-                className='flex-1 py-2.5 text-[14px] text-qq-blue hover:bg-qq-hover transition-colors'
+                className='flex-1 py-2 rounded-lg text-[13px] text-qq-text bg-qq-hover hover:bg-qq-active transition-colors'
               >
                 {confirmDialog.cancelText || '取消'}
               </button>
@@ -288,7 +288,7 @@ export const Overlays: React.FC = () => {
                   confirmDialog.onConfirm()
                   setConfirmDialog(null)
                 }}
-                className='flex-1 py-2.5 text-[14px] font-semibold text-qq-blue hover:bg-qq-hover transition-colors'
+                className='flex-1 py-2 rounded-lg text-[13px] font-medium text-white bg-qq-blue hover:bg-qq-blue-hover transition-colors'
               >
                 {confirmDialog.confirmText || '确定'}
               </button>
@@ -300,15 +300,15 @@ export const Overlays: React.FC = () => {
       {/* Alert Dialog（macOS 告警框） */}
       {alertDialog && (
         <div className='fixed inset-0 z-[111] flex items-center justify-center p-4 bg-black/30 animate-in fade-in duration-150'>
-          <div className='w-full max-w-[270px] glass rounded-2xl shadow-2xl animate-in zoom-in-95 duration-150 overflow-hidden'>
+          <div className='w-full max-w-[270px] glass rounded-xl shadow-2xl animate-in zoom-in-95 duration-150 overflow-hidden'>
             <div className='px-5 pt-5 pb-4 text-center'>
               <h3 className='text-[15px] font-semibold mb-1.5'>{alertDialog.title}</h3>
               <p className='text-xs text-qq-text-secondary leading-relaxed'>{alertDialog.message}</p>
             </div>
-            <div className='flex border-t border-qq-divider'>
+            <div className='px-5 pb-5'>
               <button
                 onClick={() => setAlertDialog(null)}
-                className='flex-1 py-2.5 text-[14px] font-semibold text-qq-blue hover:bg-qq-hover transition-colors'
+                className='w-full py-2 rounded-lg text-[13px] font-medium text-white bg-qq-blue hover:bg-qq-blue-hover transition-colors'
               >
                 确定
               </button>
