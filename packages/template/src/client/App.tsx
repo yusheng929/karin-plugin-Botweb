@@ -6,7 +6,7 @@ import { Overlays } from './components/Overlays'
 
 export default function App () {
   return (
-    <div className='flex h-full font-sans antialiased overflow-hidden bg-tg-chat-bg text-tg-text'>
+    <div className='flex h-full font-sans antialiased overflow-hidden bg-qq-chat-bg text-qq-text'>
       <NavRail />
       <Sidebar />
       <ChatWindow />

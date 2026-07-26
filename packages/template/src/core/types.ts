@@ -72,7 +72,35 @@ export type MessageElement =
   | { type: 'video', file: string, name?: string }
   /** 语音：file 为 url 或 base64 */
   | { type: 'record', file: string, name?: string }
+  /** 合并转发：id 为 resId，内容点击后经 GET /bots/:selfId/forward 拉取 */
+  | { type: 'forward', id: string }
+  /** markdown 原文（前端按 bot 协议族渲染：QQ/Telegram/Discord 语法各异） */
+  | { type: 'markdown', content: string }
+  /** 按钮/键盘（QQ 按钮，link 可跳转，其余仅展示不可触发） */
+  | { type: 'buttons', rows: ButtonItem[][] }
   | { type: 'other', text: string }
+
+/** 按钮项（与 core 的 service/dto.ts 保持一致） */
+export interface ButtonItem {
+  text: string
+  /** 跳转链接（有则可点击打开） */
+  link?: string
+  /** 操作相关数据 */
+  data?: string
+  /** 点击后显示的文字 */
+  show?: string
+  /** QQ 按钮样式（0 灰线框 / 1 蓝线框 / 3 红字等） */
+  style?: number
+}
+
+/** 合并转发内容项（与 core 的 service/dto.ts 保持一致） */
+export interface ForwardMessageItem {
+  senderId: string
+  senderName: string
+  /** 秒级时间戳 */
+  time: number
+  elements: MessageElement[]
+}
 
 /** 会话场景 */
 export type ChatScene = 'friend' | 'group'

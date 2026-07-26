@@ -9,20 +9,26 @@ const STICK_THRESHOLD = 80
 /** 同发送者连续消息归为一组的时间窗口 */
 const GROUP_WINDOW = 300_000
 
+/** 相邻消息间隔超过该值时插入居中时间戳（QQ NT 风格灰字） */
+const TIME_DIVIDER_GAP = 300_000
+
 const isSameDay = (a: number, b: number) => new Date(a).toDateString() === new Date(b).toDateString()
 
-/** 日期分隔胶囊文本 */
-const formatDateDivider = (time: number) => {
+const pad = (n: number) => String(n).padStart(2, '0')
+
+/** 居中时间戳文本（QQ NT：今天只显示时刻，昨天/更早带日期前缀） */
+const formatTimeDivider = (time: number) => {
   const d = new Date(toMillis(time))
   const now = new Date()
-  if (d.toDateString() === now.toDateString()) return '今天'
+  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`
+  if (d.toDateString() === now.toDateString()) return hm
   const yesterday = new Date(now)
   yesterday.setDate(now.getDate() - 1)
-  if (d.toDateString() === yesterday.toDateString()) return '昨天'
+  if (d.toDateString() === yesterday.toDateString()) return `昨天 ${hm}`
   const sameYear = d.getFullYear() === now.getFullYear()
   return sameYear
-    ? `${d.getMonth() + 1}月${d.getDate()}日`
-    : `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`
+    ? `${d.getMonth() + 1}月${d.getDate()}日 ${hm}`
+    : `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${hm}`
 }
 
 export const MessageList: React.FC = () => {
@@ -76,22 +82,25 @@ export const MessageList: React.FC = () => {
   }
 
   return (
-    <div ref={scrollRef} onScroll={handleScroll} className='flex-1 overflow-y-auto px-4 py-4'>
+    <div ref={scrollRef} onScroll={handleScroll} className='flex-1 overflow-y-auto px-5 py-4'>
       <div ref={contentRef} className='flex flex-col'>
         {messages.map((m, index) => {
           const prevMsg = messages[index - 1]
           const nextMsg = messages[index + 1]
-          const dayChanged = !prevMsg || !isSameDay(toMillis(prevMsg.time), toMillis(m.time))
+          // QQ NT：首条 / 跨天 / 间隔超 5 分钟时插入居中灰字时间戳
+          const showTime = !prevMsg ||
+            !isSameDay(toMillis(prevMsg.time), toMillis(m.time)) ||
+            toMillis(m.time) - toMillis(prevMsg.time) >= TIME_DIVIDER_GAP
           const isMe = !!currentBot && m.senderId === currentBot.selfId
-          const groupStart = dayChanged || !sameGroup(prevMsg, m)
+          const groupStart = showTime || !sameGroup(prevMsg, m)
           const groupEnd = !sameGroup(m, nextMsg)
 
           return (
             <React.Fragment key={m.messageId || index}>
-              {dayChanged && (
-                <div className='flex justify-center my-3'>
-                  <span className='px-3 py-1 rounded-full bg-black/20 dark:bg-white/10 text-white dark:text-tg-text-secondary text-xs select-none'>
-                    {formatDateDivider(m.time)}
+              {showTime && (
+                <div className='flex justify-center my-3 select-none'>
+                  <span className='text-[11px] text-qq-text-secondary'>
+                    {formatTimeDivider(m.time)}
                   </span>
                 </div>
               )}

@@ -1,8 +1,8 @@
 import karin from 'node-karin'
 import { ApiResult } from '@/types'
 import { fail, ok } from './response'
-import { toBotInfo, toFriendItem, toGroupItem, toMemberItem } from './dto'
-import type { BotInfo, FriendItem, GroupItem, GroupMemberItem } from './dto'
+import { toBotInfo, toForwardMessageItem, toFriendItem, toGroupItem, toMemberItem } from './dto'
+import type { BotInfo, ForwardMessageItem, FriendItem, GroupItem, GroupMemberItem } from './dto'
 import { ProfileCache } from './cache'
 import { SettingsService } from './settings'
 
@@ -138,6 +138,19 @@ export const BotService = {
       return ok(null)
     } catch (err) {
       return fail(err instanceof Error ? err.message : '踢出成员失败')
+    }
+  },
+
+  /** 拉取合并转发消息内容（resId 来自 forward 元素，协议端不支持时返回 fail） */
+  async forward (selfId: string, resId: string): Promise<ApiResult<ForwardMessageItem[]>> {
+    const bot = this.get(selfId)
+    if (!bot) return fail('Bot不存在')
+    if (!resId) return fail('缺少 resId')
+    try {
+      const list = await bot.getForwardMsg(resId)
+      return ok(list.map(toForwardMessageItem))
+    } catch (err) {
+      return fail(err instanceof Error ? err.message : '获取合并转发消息失败')
     }
   }
 }

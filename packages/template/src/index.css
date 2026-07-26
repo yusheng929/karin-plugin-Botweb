@@ -1,66 +1,83 @@
 @import "tailwindcss";
 
+/* 构建产物 html.ts 内含旧版类名字符串，排除防止死类自我延续进新 CSS */
+@source not "./generated/html.ts";
+
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
-  --color-tg-blue: var(--tg-blue);
-  --color-tg-blue-hover: var(--tg-blue-hover);
-  --color-tg-bg: var(--tg-bg);
-  --color-tg-sidebar: var(--tg-sidebar);
-  --color-tg-rail: var(--tg-rail);
-  --color-tg-border: var(--tg-border);
-  --color-tg-text: var(--tg-text);
-  --color-tg-text-secondary: var(--tg-text-secondary);
-  --color-tg-hover: var(--tg-hover);
-  --color-tg-active: var(--tg-active);
-  --color-tg-bubble-me: var(--tg-bubble-me);
-  --color-tg-bubble-me-text: var(--tg-bubble-me-text);
-  --color-tg-bubble-them: var(--tg-bubble-them);
-  --color-tg-bubble-them-text: var(--tg-bubble-them-text);
-  --color-tg-badge: var(--tg-badge);
-  --color-tg-chat-bg: var(--tg-chat-bg);
-  --color-tg-divider: var(--tg-divider);
+  --color-qq-blue: var(--qq-blue);
+  --color-qq-blue-hover: var(--qq-blue-hover);
+  --color-qq-bg: var(--qq-bg);
+  --color-qq-sidebar: var(--qq-sidebar);
+  --color-qq-rail: var(--qq-rail);
+  --color-qq-border: var(--qq-border);
+  --color-qq-text: var(--qq-text);
+  --color-qq-text-secondary: var(--qq-text-secondary);
+  --color-qq-hover: var(--qq-hover);
+  --color-qq-active: var(--qq-active);
+  --color-qq-bubble-me: var(--qq-bubble-me);
+  --color-qq-bubble-me-text: var(--qq-bubble-me-text);
+  --color-qq-bubble-them: var(--qq-bubble-them);
+  --color-qq-bubble-them-text: var(--qq-bubble-them-text);
+  --color-qq-badge: var(--qq-badge);
+  --color-qq-chat-bg: var(--qq-chat-bg);
+  --color-qq-divider: var(--qq-divider);
+  --color-qq-input: var(--qq-input);
 }
 
-/* Telegram Desktop 经典配色 */
+/*
+ * Mac 版 QQ（NT）浅色主题：
+ * 白色聊天区 + 浅灰功能栏/会话栏、QQ 品牌蓝 #0099ff、
+ * 他人气泡浅灰、自己气泡品牌蓝、hairline 分隔线
+ */
 :root {
-  --tg-blue: #3390ec;
-  --tg-blue-hover: #2b81d6;
-  --tg-bg: #ffffff;
-  --tg-sidebar: #ffffff;
-  --tg-rail: #f0f0f0;
-  --tg-border: #e7e7e7;
-  --tg-text: #000000;
-  --tg-text-secondary: #707579;
-  --tg-hover: rgba(0, 0, 0, 0.06);
-  --tg-active: #3390ec;
-  --tg-bubble-me: #eeffde;
-  --tg-bubble-me-text: #000000;
-  --tg-bubble-them: #ffffff;
-  --tg-bubble-them-text: #000000;
-  --tg-badge: #4dcd5e;
-  --tg-chat-bg: #e7ebf0;
-  --tg-divider: rgba(0, 0, 0, 0.12);
+  --qq-blue: #0099ff;
+  --qq-blue-hover: #33adff;
+  --qq-bg: #ffffff;
+  --qq-sidebar: #f4f4f6;
+  --qq-rail: #ececf0;
+  --qq-border: rgba(0, 0, 0, 0.06);
+  --qq-text: #1f1f1f;
+  --qq-text-secondary: #999999;
+  --qq-hover: rgba(0, 0, 0, 0.05);
+  --qq-active: #0099ff;
+  --qq-bubble-me: #0099ff;
+  --qq-bubble-me-text: #ffffff;
+  --qq-bubble-them: #f1f1f2;
+  --qq-bubble-them-text: #1f1f1f;
+  --qq-badge: #ff4d4f;
+  --qq-chat-bg: #ffffff;
+  --qq-divider: rgba(0, 0, 0, 0.06);
+  --qq-input: rgba(0, 0, 0, 0.05);
+  --qq-glass: rgba(246, 246, 248, 0.82);
+  --qq-glass-border: rgba(0, 0, 0, 0.08);
+  --qq-scrollbar: rgba(0, 0, 0, 0.2);
 }
 
+/* Mac 版 QQ（NT）深色主题：近黑分层灰 + 同款蓝 */
 .dark {
-  --tg-blue: #5288c1;
-  --tg-blue-hover: #6495cf;
-  --tg-bg: #17212b;
-  --tg-sidebar: #17212b;
-  --tg-rail: #0e1621;
-  --tg-border: #0e1621;
-  --tg-text: #f5f5f5;
-  --tg-text-secondary: #7f91a4;
-  --tg-hover: rgba(255, 255, 255, 0.06);
-  --tg-active: #2b5278;
-  --tg-bubble-me: #2b5278;
-  --tg-bubble-me-text: #f5f5f5;
-  --tg-bubble-them: #182533;
-  --tg-bubble-them-text: #f5f5f5;
-  --tg-badge: #4dcd5e;
-  --tg-chat-bg: #0e1621;
-  --tg-divider: rgba(255, 255, 255, 0.16);
+  --qq-blue: #0a84ff;
+  --qq-blue-hover: #3396ff;
+  --qq-bg: #1c1c1e;
+  --qq-sidebar: #202022;
+  --qq-rail: #19191b;
+  --qq-border: rgba(255, 255, 255, 0.08);
+  --qq-text: #f0f0f2;
+  --qq-text-secondary: #8e8e93;
+  --qq-hover: rgba(255, 255, 255, 0.07);
+  --qq-active: #0a84ff;
+  --qq-bubble-me: #0a84ff;
+  --qq-bubble-me-text: #ffffff;
+  --qq-bubble-them: #2c2c2e;
+  --qq-bubble-them-text: #f0f0f2;
+  --qq-badge: #ff453a;
+  --qq-chat-bg: #161618;
+  --qq-divider: rgba(255, 255, 255, 0.08);
+  --qq-input: rgba(255, 255, 255, 0.07);
+  --qq-glass: rgba(40, 40, 44, 0.86);
+  --qq-glass-border: rgba(255, 255, 255, 0.1);
+  --qq-scrollbar: rgba(255, 255, 255, 0.22);
 }
 
 html,
@@ -74,59 +91,202 @@ body,
 
 body {
   overflow: hidden;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
-  background-color: var(--tg-chat-bg);
-  color: var(--tg-text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  background-color: var(--qq-chat-bg);
+  color: var(--qq-text);
+  -webkit-font-smoothing: antialiased;
+  font-size: 14px;
 }
 
-/* 气泡尾巴：组尾消息（最后一条）才显示 */
+/* macOS 红绿灯（装饰性，位于功能栏顶部） */
+.traffic-lights {
+  display: flex;
+  gap: 8px;
+}
+
+.traffic-lights span {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.15);
+}
+
+.traffic-lights .tl-close {
+  background: #ff5f57;
+}
+
+.traffic-lights .tl-min {
+  background: #febc2e;
+}
+
+.traffic-lights .tl-max {
+  background: #28c840;
+}
+
+/* markdown 消息（MessageMarkdown）：颜色一律走 qq 变量，md-me 适配自己蓝气泡白字 */
+.md-body {
+  line-height: 1.6;
+  overflow-wrap: break-word;
+}
+
+.md-body p {
+  margin: 0;
+}
+
+.md-body p + p {
+  margin-top: 4px;
+}
+
+.md-body h1,
+.md-body h2,
+.md-body h3,
+.md-body h4 {
+  font-weight: 600;
+  margin: 6px 0 2px;
+  line-height: 1.4;
+}
+
+.md-body h1 { font-size: 1.3em; }
+.md-body h2 { font-size: 1.18em; }
+.md-body h3 { font-size: 1.08em; }
+.md-body h4 { font-size: 1em; }
+
+.md-body ul,
+.md-body ol {
+  margin: 2px 0;
+  padding-left: 1.4em;
+}
+
+.md-body blockquote {
+  margin: 4px 0;
+  padding-left: 10px;
+  border-left: 3px solid var(--qq-border);
+  color: var(--qq-text-secondary);
+}
+
+.md-body code {
+  background: var(--qq-hover);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+.md-body pre {
+  background: var(--qq-hover);
+  padding: 8px 10px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 4px 0;
+}
+
+.md-body pre code {
+  background: none;
+  padding: 0;
+}
+
+.md-body a {
+  color: var(--qq-blue);
+  text-decoration: none;
+}
+
+.md-body a:hover {
+  text-decoration: underline;
+}
+
+.md-body img.md-img {
+  max-width: 240px;
+  max-height: 240px;
+  border-radius: 8px;
+  margin: 4px 0;
+}
+
+.md-body table {
+  border-collapse: collapse;
+  margin: 4px 0;
+}
+
+.md-body th,
+.md-body td {
+  border: 1px solid var(--qq-border);
+  padding: 3px 8px;
+}
+
+/* 自己蓝气泡：链接/引用等颜色跟随白字 */
+.md-body.md-me a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.md-body.md-me blockquote {
+  border-left-color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.md-body.md-me code,
+.md-body.md-me pre {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* Telegram/Discord 剧透（||spoiler||）：默认遮盖，悬停/聚焦显示 */
+.md-spoiler {
+  background: var(--qq-text);
+  color: transparent;
+  border-radius: 4px;
+  padding: 0 4px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s, color 0.15s;
+}
+
+.md-spoiler:hover,
+.md-spoiler:focus {
+  background: var(--qq-hover);
+  color: inherit;
+  user-select: text;
+}
+
+.md-body.md-me .md-spoiler {
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.md-body.md-me .md-spoiler:hover,
+.md-body.md-me .md-spoiler:focus {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+/* Discord 小字（-# subtext） */
+.md-subtext {
+  display: block;
+  font-size: 11px;
+  color: var(--qq-text-secondary);
+}
+
+.md-body.md-me .md-subtext {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* macOS 毛玻璃浮层：菜单/弹层/对话框/Toast 统一使用 */
+.glass {
+  background: var(--qq-glass);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid var(--qq-glass-border);
+}
+
+/* 气泡：QQ NT 统一中圆角，无尾巴 */
 .bubble {
   position: relative;
   border-radius: 12px;
 }
 
-.bubble-me {
-  border-bottom-right-radius: 12px;
-}
-
-.bubble-them {
-  border-bottom-left-radius: 12px;
-}
-
-.bubble-tail-me,
-.bubble-tail-them {
-  position: absolute;
-  bottom: 0;
-  width: 0;
-  height: 0;
-  border-style: solid;
-}
-
-.bubble-tail-me {
-  right: -6px;
-  border-width: 0 0 10px 8px;
-  border-color: transparent transparent var(--tg-bubble-me) transparent;
-}
-
-.bubble-tail-them {
-  left: -6px;
-  border-width: 0 8px 10px 0;
-  border-color: transparent var(--tg-bubble-them) transparent transparent;
-}
-
-.bubble-tail-me.rounded,
-.bubble-tail-them.rounded {
-  border-bottom-left-radius: 4px;
-}
-
 /* 回复跳转高亮 */
-@keyframes tg-highlight {
+@keyframes qq-highlight {
   0% {
     background-color: transparent;
   }
 
   20% {
-    background-color: color-mix(in srgb, var(--tg-blue) 22%, transparent);
+    background-color: color-mix(in srgb, var(--qq-blue) 18%, transparent);
   }
 
   100% {
@@ -135,14 +295,14 @@ body {
 }
 
 .highlight-msg {
-  animation: tg-highlight 2s ease-out;
+  animation: qq-highlight 2s ease-out;
   border-radius: 8px;
 }
 
 /* 富文本输入框占位符（contenteditable 无法用原生 placeholder） */
 .rich-input:empty::before {
   content: attr(data-placeholder);
-  color: var(--tg-text-secondary);
+  color: var(--qq-text-secondary);
   pointer-events: none;
 }
 
@@ -168,19 +328,23 @@ body {
   object-fit: cover;
 }
 
-/* 细滚动条（TG 风格） */
+/* macOS 叠加式细滚动条 */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(112, 117, 121, 0.35);
-  border-radius: 3px;
+  background: var(--qq-scrollbar);
+  border: 2px solid transparent;
+  border-radius: 4px;
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(112, 117, 121, 0.55);
+  background: var(--qq-text-secondary);
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 
 ::-webkit-scrollbar-track {

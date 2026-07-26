@@ -4,6 +4,7 @@ import { useChat } from '../state/chat'
 import { useUi } from '../state/ui'
 import { Avatar } from './Avatar'
 
+/** 会话资料侧栏（QQ NT 右侧抽屉）：资料页 + 群成员列表页 */
 export const ChatDetailsSidebar: React.FC = () => {
   const { currentConversation, groupMembers, resolveAvatar } = useChat()
   const { setContextMenu } = useUi()
@@ -39,8 +40,8 @@ export const ChatDetailsSidebar: React.FC = () => {
   }
 
   const roleBadge = (role: string) => {
-    if (role === 'owner') return <span className='text-[10px] text-amber-500 font-medium shrink-0'>群主</span>
-    if (role === 'admin') return <span className='text-[10px] text-emerald-500 font-medium shrink-0'>管理员</span>
+    if (role === 'owner') return <span className='text-[10px] px-1 py-px rounded bg-amber-500/15 text-amber-500 font-medium shrink-0'>群主</span>
+    if (role === 'admin') return <span className='text-[10px] px-1 py-px rounded bg-emerald-500/15 text-emerald-500 font-medium shrink-0'>管理员</span>
     return null
   }
 
@@ -49,46 +50,46 @@ export const ChatDetailsSidebar: React.FC = () => {
       onMouseDown={(e) => e.stopPropagation()}
       onMouseUp={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
-      className='h-full w-80 flex flex-col border-l border-tg-border bg-tg-bg shadow-xl overflow-hidden'
+      className='h-full w-72 flex flex-col border-l border-qq-border bg-qq-chat-bg shadow-xl overflow-hidden'
     >
-      <header className='h-14 px-3 flex items-center justify-between shrink-0 border-b border-tg-border'>
-        <div className='w-9 flex items-center'>
+      <header className='h-[52px] px-2.5 flex items-center justify-between shrink-0 border-b border-qq-border'>
+        <div className='w-8 flex items-center'>
           {showMembers && (
             <button
               onClick={() => setShowMembers(false)}
-              className='p-2 rounded-full hover:bg-tg-hover transition-colors text-tg-text-secondary'
+              className='p-1.5 rounded-lg hover:bg-qq-hover transition-colors text-qq-text-secondary'
               title='返回'
             >
               <ChevronLeft className='w-5 h-5' />
             </button>
           )}
         </div>
-        <h3 className='text-sm font-semibold'>
-          {showMembers ? '群聊成员' : '资料'}
+        <h3 className='text-[14px] font-semibold'>
+          {showMembers ? '群聊成员' : (isGroup ? '群聊设置' : '聊天设置')}
         </h3>
-        <div className='w-9' />
+        <div className='w-8' />
       </header>
 
       {/* 成员列表页 */}
       {showMembers && isGroup
         ? (
-          <div className='flex-1 overflow-y-auto py-2'>
+          <div className='flex-1 overflow-y-auto px-2 py-2'>
             {members.map((member) => (
               <div
                 key={member.userId}
                 onContextMenu={(e) => openMemberMenu(e, member)}
-                className='flex items-center gap-3 px-4 py-2 hover:bg-tg-hover transition-colors cursor-default'
+                className='flex items-center gap-2.5 px-2.5 py-1.5 rounded-[10px] hover:bg-qq-hover transition-colors cursor-default'
               >
                 <Avatar
                   url={resolveAvatar(member.userId)}
                   name={member.card || member.nick || member.userId}
-                  className='w-10 h-10 text-base shrink-0'
+                  className='w-9 h-9 text-sm shrink-0'
                 />
                 <div className='flex-1 min-w-0 text-left'>
-                  <div className='text-sm truncate'>
+                  <div className='text-[13px] truncate'>
                     {member.card || member.nick || member.userId}
                   </div>
-                  <div className='text-xs text-tg-text-secondary truncate'>
+                  <div className='text-xs text-qq-text-secondary truncate'>
                     {member.userId}
                   </div>
                 </div>
@@ -96,43 +97,45 @@ export const ChatDetailsSidebar: React.FC = () => {
               </div>
             ))}
             {members.length === 0 && (
-              <div className='px-4 py-8 text-center text-sm text-tg-text-secondary'>暂无成员数据</div>
+              <div className='px-4 py-8 text-center text-[13px] text-qq-text-secondary'>暂无成员数据</div>
             )}
           </div>
-        )
+          )
         : (
           <div className='flex-1 overflow-y-auto'>
-            {/* 大头像 + 名称（头像来自会话资料，后端协议端提供；缺失用字母占位） */}
-            <div className='flex flex-col items-center pt-8 pb-6 px-4'>
+            {/* 头像 + 名称（头像来自会话资料，后端协议端提供；缺失用字母占位） */}
+            <div className='flex flex-col items-center pt-7 pb-6 px-4'>
               <Avatar
                 url={currentConversation.avatar}
                 name={currentConversation.name}
-                className='w-28 h-28 text-4xl shadow-sm mb-4'
+                className='w-20 h-20 text-3xl shadow-sm mb-3'
               />
-              <h4 className='text-lg font-semibold text-center truncate max-w-full'>
+              <h4 className='text-[16px] font-semibold text-center truncate max-w-full'>
                 {currentConversation.name}
               </h4>
-              <div className='text-sm text-tg-text-secondary mt-1'>
-                {isGroup ? `群号: ${displayId}` : `账号: ${displayId}`}
+              <div className='text-xs text-qq-text-secondary mt-1'>
+                {isGroup ? `群号 ${displayId}` : `QQ ${displayId}`}
               </div>
             </div>
 
             {/* 成员入口 */}
             {isGroup && (
-              <button
-                onClick={() => setShowMembers(true)}
-                className='w-full flex items-center gap-4 px-4 py-3 hover:bg-tg-hover transition-colors border-t border-tg-border'
-              >
-                <Users className='w-5 h-5 text-tg-text-secondary shrink-0' />
-                <span className='flex-1 text-sm text-left'>群聊成员</span>
-                <span className='text-sm text-tg-text-secondary flex items-center gap-0.5'>
-                  {members.length}
-                  <ChevronRight className='w-4 h-4' />
-                </span>
-              </button>
+              <div className='px-3'>
+                <button
+                  onClick={() => setShowMembers(true)}
+                  className='w-full flex items-center gap-3 px-3 py-2.5 rounded-[10px] bg-qq-sidebar hover:bg-qq-hover transition-colors'
+                >
+                  <Users className='w-[18px] h-[18px] text-qq-text-secondary shrink-0' strokeWidth={1.8} />
+                  <span className='flex-1 text-[13px] text-left'>群聊成员</span>
+                  <span className='text-[13px] text-qq-text-secondary flex items-center gap-0.5'>
+                    {members.length}
+                    <ChevronRight className='w-4 h-4' />
+                  </span>
+                </button>
+              </div>
             )}
           </div>
-        )}
+          )}
     </div>
   )
 }

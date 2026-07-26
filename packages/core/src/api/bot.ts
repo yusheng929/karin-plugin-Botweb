@@ -36,6 +36,11 @@ router.get('/bots/:selfId/avatars', async (req, res) => {
   res.json(await BotService.avatars(req.params.selfId, ids))
 })
 
+/** 合并转发消息内容（resId 来自 forward 元素） */
+router.get('/bots/:selfId/forward', async (req, res) => {
+  res.json(await BotService.forward(req.params.selfId, String(req.query.resId || '')))
+})
+
 /** 戳一戳群成员 */
 router.post('/bots/:selfId/groups/:groupId/poke', async (req, res) => {
   res.json(await BotService.poke(req.params.selfId, req.params.groupId, String(req.body?.targetId ?? '')))

@@ -1,13 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react'
 import {
   Smile,
-  Paperclip,
   AtSign,
-  Reply,
   X,
-  Send,
   Image as ImageIcon,
-  File as FileIcon
+  FolderOpen
 } from 'lucide-react'
 import { useChat } from '../state/chat'
 import { useUi } from '../state/ui'
@@ -20,6 +17,10 @@ import { Avatar } from './Avatar'
 /** 内联图片的大小上限（与 chat.tsx 的文件发送上限一致，base64 内联发送，过大会撑爆请求） */
 const MAX_FILE_SIZE = 20 * 1024 * 1024
 
+/**
+ * QQ NT 式输入区：顶部工具条（表情/图片/文件）+ 大输入域 + 右下「发送」按钮，
+ * 与聊天区同底色，仅以 hairline 分隔
+ */
 export const InputArea: React.FC = () => {
   const { currentBot, currentConversation, sendMessage, handleFiles, groupMembers, resolveAvatar } = useChat()
   const { replyTo, setReplyTo, pendingMention, setPendingMention, pendingImages, setPendingImages, setToast } = useUi()
@@ -27,8 +28,6 @@ export const InputArea: React.FC = () => {
   const [isEmpty, setIsEmpty] = useState(true)
   const [atMenu, setAtMenu] = useState<{ filter: string } | null>(null)
   const [showEmoji, setShowEmoji] = useState(false)
-  /** 附件小菜单（图片/文件，TG 风格） */
-  const [showAttach, setShowAttach] = useState(false)
   const [selectedIndex, setSelectedIndex] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   /** 文件选择器的打开来源：image=图片（内联进输入框）/ file=文件（直接发送） */
@@ -63,14 +62,6 @@ export const InputArea: React.FC = () => {
   useEffect(() => {
     setSelectedIndex(0)
   }, [atMenu?.filter])
-
-  // 附件菜单：点击其他位置关闭
-  useEffect(() => {
-    if (!showAttach) return
-    const close = () => setShowAttach(false)
-    window.addEventListener('click', close)
-    return () => window.removeEventListener('click', close)
-  }, [showAttach])
 
   // 切换会话：清空编辑器与内联图片、收起 emoji 面板和 @ 菜单（依赖会话 key 而非对象：消息到达会使会话对象重建，但 key 不变）
   const conversationKey = currentConversation?.key
@@ -371,7 +362,6 @@ export const InputArea: React.FC = () => {
 
   /** 打开文件选择器（image=图片内联进输入框，file=文件直接发送） */
   const pickFiles = (mode: 'image' | 'file') => {
-    setShowAttach(false)
     fileModeRef.current = mode
     if (fileInputRef.current) {
       fileInputRef.current.accept = mode === 'image' ? 'image/*' : '*/*'
@@ -379,8 +369,24 @@ export const InputArea: React.FC = () => {
     }
   }
 
+  /** 工具条图标按钮 */
+  const toolButton = (icon: React.ReactNode, label: string, onClick: (e: React.MouseEvent) => void, active = false, disabled = false) => (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'p-1.5 rounded-md transition-colors shrink-0',
+        active ? 'text-qq-blue bg-qq-blue/12' : 'text-qq-text-secondary hover:bg-qq-hover hover:text-qq-text',
+        disabled && 'opacity-40 cursor-not-allowed'
+      )}
+      title={label}
+    >
+      {icon}
+    </button>
+  )
+
   return (
-    <footer className='px-4 pb-3 pt-1 shrink-0 relative bg-tg-chat-bg'>
+    <footer className='shrink-0 relative bg-qq-chat-bg border-t border-qq-border'>
       {/* Emoji 面板 */}
       {showEmoji && (
         <EmojiPicker
@@ -390,11 +396,11 @@ export const InputArea: React.FC = () => {
         />
       )}
 
-      {/* At Menu */}
+      {/* @ 群成员菜单 */}
       {atMenu && isGroup && filteredMembers.length > 0 && (
-        <div className='absolute bottom-full mb-2 left-4 w-64 max-h-56 overflow-y-auto rounded-xl shadow-xl border border-tg-border bg-tg-bg z-50 animate-in fade-in slide-in-from-bottom-2 duration-150'>
-          <div className='p-1.5'>
-            <div className='px-3 py-1.5 text-xs text-tg-text-secondary flex items-center gap-1.5'>
+        <div className='absolute bottom-full mb-2 left-4 w-64 max-h-56 overflow-y-auto rounded-xl shadow-2xl glass z-50 animate-in fade-in slide-in-from-bottom-2 duration-150'>
+          <div className='p-1'>
+            <div className='px-2.5 py-1.5 text-xs text-qq-text-secondary flex items-center gap-1.5'>
               <AtSign className='w-3 h-3' /> 选择群成员
             </div>
             {filteredMembers.map((member, idx: number) => (
@@ -403,8 +409,8 @@ export const InputArea: React.FC = () => {
                 onMouseEnter={() => setSelectedIndex(idx)}
                 onClick={() => insertAt(member.userId)}
                 className={cn(
-                  'w-full flex items-center gap-3 px-2.5 py-1.5 rounded-lg text-left transition-colors',
-                  idx === selectedIndex ? 'bg-tg-hover' : ''
+                  'w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-left transition-colors',
+                  idx === selectedIndex ? 'bg-qq-hover' : ''
                 )}
               >
                 <Avatar
@@ -413,8 +419,8 @@ export const InputArea: React.FC = () => {
                   className='w-7 h-7 text-xs shrink-0'
                 />
                 <div className='flex-1 min-w-0'>
-                  <div className='text-sm truncate'>{('card' in member && member.card) || member.nick || member.userId}</div>
-                  <div className='text-xs text-tg-text-secondary'>{member.userId}</div>
+                  <div className='text-[13px] truncate'>{('card' in member && member.card) || member.nick || member.userId}</div>
+                  <div className='text-xs text-qq-text-secondary'>{member.userId}</div>
                 </div>
               </button>
             ))}
@@ -422,129 +428,104 @@ export const InputArea: React.FC = () => {
         </div>
       )}
 
-      {/* 附件菜单（TG 风格：图片内联进输入框，文件直接发送） */}
-      {showAttach && (
-        <div
-          className='absolute bottom-full mb-2 left-4 w-44 rounded-xl shadow-xl border border-tg-border bg-tg-bg z-50 p-1.5 animate-in fade-in slide-in-from-bottom-2 duration-150'
-          onClick={(e) => e.stopPropagation()}
-        >
+      {/* 待回复状态条 */}
+      {replyTo && (
+        <div className='mx-3 mt-2 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-qq-input text-xs'>
+          <span className='flex-1 min-w-0 truncate border-l-2 border-qq-blue pl-2'>
+            <span className='text-qq-blue font-medium'>{replyTo.senderName}</span>
+            <span className='text-qq-text-secondary'> {getMessageSummary(replyTo.elements)}</span>
+          </span>
           <button
-            onClick={() => pickFiles('image')}
-            className='w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-tg-text hover:bg-tg-hover transition-colors'
+            onClick={() => setReplyTo(null)}
+            className='p-0.5 rounded-full hover:bg-qq-hover transition-colors shrink-0 text-qq-text-secondary'
+            title='取消回复'
           >
-            <ImageIcon className='w-4 h-4 text-tg-text-secondary' /> 图片
-          </button>
-          <button
-            onClick={() => pickFiles('file')}
-            className='w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-tg-text hover:bg-tg-hover transition-colors'
-          >
-            <FileIcon className='w-4 h-4 text-tg-text-secondary' /> 文件
+            <X className='w-3.5 h-3.5' />
           </button>
         </div>
       )}
 
-      <div className='flex items-end gap-2'>
-        {/* 输入卡片 */}
-        <div className='flex-1 flex flex-col rounded-xl bg-tg-bg shadow-sm overflow-hidden'>
-          {/* 待回复状态 */}
-          {replyTo && (
-            <div className='flex items-center gap-2 px-3 py-1.5 border-b border-tg-border text-[13px]'>
-              <Reply className='w-4 h-4 shrink-0 text-tg-blue' />
-              <span className='flex-1 min-w-0 truncate border-l-2 border-tg-blue pl-2'>
-                <span className='text-tg-blue font-medium'>{replyTo.senderName}</span>
-                <span className='text-tg-text-secondary'> {getMessageSummary(replyTo.elements)}</span>
-              </span>
-              <button
-                onClick={() => setReplyTo(null)}
-                className='p-1 rounded-full hover:bg-tg-hover transition-colors shrink-0 text-tg-text-secondary'
-                title='取消回复'
-              >
-                <X className='w-4 h-4' />
-              </button>
-            </div>
-          )}
+      {/* 工具条：表情 / 图片 / 文件（QQ NT 顶部工具排） */}
+      <div className='flex items-center gap-0.5 px-3 pt-1.5'>
+        {toolButton(
+          <Smile className='w-5 h-5' strokeWidth={1.8} />,
+          '表情',
+          () => {
+            setAtMenu(null)
+            setShowEmoji(!showEmoji)
+          },
+          showEmoji,
+          !currentConversation
+        )}
+        {toolButton(
+          <ImageIcon className='w-5 h-5' strokeWidth={1.8} />,
+          '图片',
+          () => pickFiles('image'),
+          false,
+          !currentConversation
+        )}
+        {toolButton(
+          <FolderOpen className='w-5 h-5' strokeWidth={1.8} />,
+          '文件',
+          () => pickFiles('file'),
+          false,
+          !currentConversation
+        )}
+      </div>
 
-          <div className='flex items-end'>
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                setAtMenu(null)
-                setShowAttach(!showAttach)
-              }}
-              className={cn(
-                'p-3 transition-colors shrink-0',
-                showAttach ? 'text-tg-blue' : 'text-tg-text-secondary hover:text-tg-blue'
-              )}
-              title='附件'
-            >
-              <Paperclip className='w-6 h-6' />
-            </button>
-            {/* 富文本输入框：QQ 表情/图片以内联图片形式与文本混排（发送时解析为 text/face/image 元素序列） */}
-            <div
-              ref={editorRef}
-              contentEditable={!!currentConversation}
-              onInput={handleInput}
-              onKeyDown={handleKeyPress}
-              onPaste={handlePaste}
-              data-placeholder={!currentConversation ? '选择一个会话开始聊天' : '消息'}
-              className={cn(
-                'rich-input flex-1 py-3.5 text-sm outline-none max-h-32 min-h-[24px] overflow-y-auto whitespace-pre-wrap break-words',
-                !currentConversation && 'opacity-50 cursor-not-allowed'
-              )}
-            />
-            <button
-              onClick={() => {
-                setAtMenu(null)
-                setShowEmoji(!showEmoji)
-              }}
-              className={cn(
-                'p-3 transition-colors shrink-0',
-                showEmoji ? 'text-tg-blue' : 'text-tg-text-secondary hover:text-tg-blue'
-              )}
-              title='表情'
-            >
-              <Smile className='w-6 h-6' />
-            </button>
+      {/* 富文本输入框：QQ 表情/图片以内联图片形式与文本混排（发送时解析为 text/face/image 元素序列） */}
+      <div
+        ref={editorRef}
+        contentEditable={!!currentConversation}
+        onInput={handleInput}
+        onKeyDown={handleKeyPress}
+        onPaste={handlePaste}
+        onClick={() => editorRef.current?.focus()}
+        data-placeholder={!currentConversation ? '选择一个会话开始聊天' : ''}
+        className={cn(
+          'rich-input mx-4 mt-1 text-[14px] outline-none min-h-[56px] max-h-36 overflow-y-auto whitespace-pre-wrap break-words leading-relaxed',
+          !currentConversation && 'opacity-50 cursor-not-allowed'
+        )}
+      />
 
-            <input
-              type='file'
-              ref={fileInputRef}
-              className='hidden'
-              multiple
-              onChange={(e) => {
-                // 先拷贝成数组再清空 input：input.files 的 FileList 是活动的，清空 value 后已捕获的 FileList 会变空
-                const files = Array.from(e.target.files || [])
-                e.target.value = ''
-                if (files.length === 0) return
-                // image 模式只内联图片文件（用户可能改选其他类型，非图片走直发兜底）
-                if (fileModeRef.current === 'image') {
-                  for (const file of files) {
-                    if (file.type.startsWith('image/')) insertImageFile(file)
-                    else void handleFiles([file])
-                  }
-                } else {
-                  void handleFiles(files)
-                }
-              }}
-            />
-          </div>
-        </div>
-
-        {/* 发送按钮 */}
+      {/* 发送按钮（QQ NT：右下角蓝色圆角按钮，Enter 发送） */}
+      <div className='flex items-center justify-end px-4 pb-3 pt-1.5'>
         <button
           onClick={handleSend}
           disabled={isDisabled}
           className={cn(
-            'w-12 h-12 rounded-full flex items-center justify-center shrink-0 transition-all shadow-sm',
+            'h-[30px] px-6 rounded-full text-[13px] font-medium transition-all',
             isDisabled
-              ? 'bg-tg-hover text-tg-text-secondary cursor-not-allowed'
-              : 'bg-tg-blue text-white hover:bg-tg-blue-hover active:scale-95'
+              ? 'bg-qq-blue/40 text-white cursor-not-allowed'
+              : 'bg-qq-blue text-white hover:bg-qq-blue-hover active:scale-[0.97]'
           )}
-          title='发送'
+          title='发送（Enter）'
         >
-          <Send className='w-5 h-5 -ml-0.5' />
+          发送
         </button>
       </div>
+
+      <input
+        type='file'
+        ref={fileInputRef}
+        className='hidden'
+        multiple
+        onChange={(e) => {
+          // 先拷贝成数组再清空 input：input.files 的 FileList 是活动的，清空 value 后已捕获的 FileList 会变空
+          const files = Array.from(e.target.files || [])
+          e.target.value = ''
+          if (files.length === 0) return
+          // image 模式只内联图片文件（用户可能改选其他类型，非图片走直发兜底）
+          if (fileModeRef.current === 'image') {
+            for (const file of files) {
+              if (file.type.startsWith('image/')) insertImageFile(file)
+              else void handleFiles([file])
+            }
+          } else {
+            void handleFiles(files)
+          }
+        }}
+      />
     </footer>
   )
 }

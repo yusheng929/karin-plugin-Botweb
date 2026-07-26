@@ -1,4 +1,4 @@
-import type { AdapterType, GroupInfo, GroupMemberInfo, Message, SendElement, UserInfo } from 'node-karin'
+import type { AdapterType, GroupInfo, GroupMemberInfo, KarinButton, Message, MessageResponse, SendElement, UserInfo } from 'node-karin'
 import { segment } from 'node-karin'
 
 /**
@@ -68,7 +68,35 @@ export type MessageElement =
   | { type: 'file', file: string, name?: string, size?: number }
   | { type: 'video', file: string, name?: string }
   | { type: 'record', file: string, name?: string }
+  /** 合并转发：id 为 resId，内容按需经 GET /bots/:selfId/forward 拉取 */
+  | { type: 'forward', id: string }
+  /** markdown 原文（前端按 bot 协议族渲染：QQ/Telegram/Discord 语法各异） */
+  | { type: 'markdown', content: string }
+  /** 按钮/键盘（QQ 按钮，link 可跳转，其余仅展示不可触发） */
+  | { type: 'buttons', rows: ButtonItem[][] }
   | { type: 'other', text: string }
+
+/** 按钮项（与 template/src/core/types.ts 保持一致） */
+export interface ButtonItem {
+  text: string
+  /** 跳转链接（有则可点击打开） */
+  link?: string
+  /** 操作相关数据 */
+  data?: string
+  /** 点击后显示的文字 */
+  show?: string
+  /** QQ 按钮样式（0 灰线框 / 1 蓝线框 / 3 红字等） */
+  style?: number
+}
+
+/** 合并转发内容项（bot.getForwardMsg 拉取，与 template/src/core/types.ts 保持一致） */
+export interface ForwardMessageItem {
+  senderId: string
+  senderName: string
+  /** 秒级时间戳 */
+  time: number
+  elements: MessageElement[]
+}
 
 export interface ChatMessage {
   messageId: string
@@ -117,15 +145,41 @@ export const toMemberItem = (member: GroupMemberInfo): GroupMemberItem => ({
   role: member.role === 'owner' || member.role === 'admin' ? member.role : 'member'
 })
 
-/** karin 消息事件 -> ChatMessage（仅 friend/group 场景） */
-export const toChatMessage = (e: Message): ChatMessage | null => {
-  const scene = e.contact.scene
-  if (scene !== 'friend' && scene !== 'group') return null
+/**
+ * OneBot 原始消息段识别：karin 的 OneBot 适配器对未知消息段（如合并转发、markdown）
+ * 会序列化成 `{"type":"forward","data":{"id":"..."}}` / `{"type":"markdown","data":{"content":"..."}}`
+ * 的文本元素，这里还原为 forward / markdown 元素。无法识别时返回 null
+ */
+const parseRawSegment = (text: string): MessageElement | null => {
+  const t = text.trim()
+  if (!t.startsWith('{')) return null
+  try {
+    const raw = JSON.parse(t)
+    if (raw?.type === 'forward' && typeof raw.data?.id === 'string' && raw.data.id) {
+      return { type: 'forward', id: raw.data.id }
+    }
+    if (raw?.type === 'markdown' && typeof raw.data?.content === 'string') {
+      return { type: 'markdown', content: raw.data.content }
+    }
+  } catch {}
+  return null
+}
 
-  const elements: MessageElement[] = e.elements.map((el) => {
+/** karin 按钮 -> ButtonItem（只保留展示所需字段） */
+const toButtonItem = (btn: KarinButton): ButtonItem => ({
+  text: btn.text,
+  link: btn.link,
+  data: btn.data,
+  show: btn.show,
+  style: btn.style
+})
+
+/** karin 消息元素 -> 前端 DTO（toChatMessage 与合并转发内容共用） */
+export const convertElements = (list: Message['elements']): MessageElement[] => {
+  const converted = list.map((el): MessageElement => {
     switch (el.type) {
       case 'text':
-        return { type: 'text', text: el.text }
+        return parseRawSegment(el.text) ?? { type: 'text', text: el.text }
       case 'image':
         return { type: 'image', file: el.file }
       case 'at':
@@ -140,10 +194,34 @@ export const toChatMessage = (e: Message): ChatMessage | null => {
         return { type: 'video', file: el.file, name: el.name }
       case 'record':
         return { type: 'record', file: el.file, name: el.name }
+      case 'longMsg':
+        return { type: 'forward', id: el.id }
+      case 'markdown':
+        // karin 标准 markdown 元素：保留原文，前端按协议族渲染
+        return { type: 'markdown', content: el.markdown }
+      case 'button':
+        // 单行按钮视作一行键盘
+        return { type: 'buttons', rows: [el.data.map(toButtonItem)] }
+      case 'keyboard':
+        return { type: 'buttons', rows: el.rows.map(row => row.map(toButtonItem)) }
       default:
         return { type: 'other', text: `[${el.type}]` }
     }
   })
+
+  // 部分协议端会在同一条消息里同时下发 markdown 段和它的纯文本副本，去掉重复文本防止渲染两遍
+  const mdContents = new Set(
+    converted.filter((el): el is Extract<MessageElement, { type: 'markdown' }> => el.type === 'markdown')
+      .map(el => el.content.trim())
+  )
+  if (mdContents.size === 0) return converted
+  return converted.filter(el => !(el.type === 'text' && mdContents.has(el.text.trim())))
+}
+
+/** karin 消息事件 -> ChatMessage（仅 friend/group 场景） */
+export const toChatMessage = (e: Message): ChatMessage | null => {
+  const scene = e.contact.scene
+  if (scene !== 'friend' && scene !== 'group') return null
 
   return {
     messageId: e.messageId,
@@ -154,9 +232,17 @@ export const toChatMessage = (e: Message): ChatMessage | null => {
     senderId: String(e.sender.userId),
     senderName: e.sender.nick || String(e.sender.userId),
     time: e.time,
-    elements
+    elements: convertElements(e.elements)
   }
 }
+
+/** getForwardMsg 返回项 -> ForwardMessageItem */
+export const toForwardMessageItem = (item: MessageResponse): ForwardMessageItem => ({
+  senderId: String(item.sender.userId),
+  senderName: item.sender.nick || String(item.sender.userId),
+  time: item.time,
+  elements: convertElements(item.elements)
+})
 
 /** 客户端 DTO 元素 -> karin SendElement */
 export const toSendElements = (elements: MessageElement[]): SendElement[] => {
@@ -178,6 +264,13 @@ export const toSendElements = (elements: MessageElement[]): SendElement[] => {
         return segment.video(el.file, { name: el.name })
       case 'record':
         return segment.record(el.file, false, { name: el.name })
+      case 'forward':
+        return segment.text('[合并转发]')
+      case 'markdown':
+        // 面板不构造 markdown 发送，收到后转发/重发场景降级为原文文本
+        return segment.text(el.content)
+      case 'buttons':
+        return segment.text('[按钮]')
       default:
         return segment.text(el.text || '[不支持的消息]')
     }

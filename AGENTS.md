@@ -99,6 +99,7 @@ pnpm exec tsc --noEmit -p packages/core      # core 类型检查（template 需�
 | GET | `/bots/:selfId/groups` | 群列表 `GroupItem[]`（空/报错回退 db 资料缓存） |
 | GET | `/bots/:selfId/groups/:groupId/members` | 群成员 `GroupMemberItem[]`（空/报错回退 db 成员缓存） |
 | GET | `/bots/:selfId/avatars?ids=a,b,c` | 批量用户头像 `Record<userId,url>`（协议端 getAvatarUrl + db 缓存，单次上限 50 个） |
+| GET | `/bots/:selfId/forward?resId=xxx` | 合并转发内容 `ForwardMessageItem[]`（协议端 getForwardMsg，前端点击 forward 卡片时按需拉取） |
 | GET | `/settings` | 获取插件设置 `BotWebSettings` |
 | POST | `/settings` | 更新插件设置（部分字段归并，非法值忽略，返回完整设置） |
 | POST | `/bots/:selfId/groups/:groupId/poke` | 戳一戳群成员 `{ targetId }` |
@@ -120,6 +121,14 @@ pnpm exec tsc --noEmit -p packages/core      # core 类型检查（template 需�
 
 `ChatMessage` / `MessageElement` / `WsPush` 等契约定义在 `packages/template/src/core/types.ts`，core 侧镜像在 `packages/core/src/service/dto.ts`，**改动契约时两边必须同步**。`system: true` 的消息按系统小灰条渲染（戳一戳提示）。
 
+**合并转发（forward 元素）**：`{ type: 'forward', id }`，id 为 resId。karin 的 OneBot 适配器对未知消息段（含合并转发、markdown）会序列化成 `{"type":"forward","data":{"id":"..."}}` / `{"type":"markdown","data":{"content":"..."}}` 的**文本**元素，core 的 `convertElements` 负责还原：forward JSON 与 karin 标准 `longMsg` 元素映射为 forward 元素；markdown JSON 与 karin 标准 `markdown` 元素映射为 `{ type: 'markdown', content }` 保留原文；karin 标准 `button`/`keyboard` 元素映射为 `{ type: 'buttons', rows: ButtonItem[][] }`。另：**部分协议端会在同一条消息里同时下发 markdown 段和它的纯文本副本**，`convertElements` 会去掉与 markdown 内容完全相同的文本段防止前端渲染两遍。前端列表渲染 forward 为白色卡片（`MessageItem.tsx` 的 `MessageForward`，纯转发消息气泡像纯媒体一样去背景），点击后经 `GET /bots/:selfId/forward` 按需拉取（`bot.getForwardMsg`），毛玻璃浮层逐条展示（嵌套转发显示占位）。发送侧 forward 降级为文本 `[合并转发]`、markdown 降级为原文文本、buttons 降级为 `[按钮]`。
+
+**按钮渲染**（`MessageItem.tsx` 的 `MessageButtons`）：QQ NT 式线框小按钮按行排列，`link` 按钮可点击新窗口打开，回调/指令按钮无法在面板触发（协议端回调机制）仅展示；`style: 3` 红字（`text-qq-badge`），其余蓝色线框。
+
+**「原始事件」调试浮层**：消息右键菜单（`Overlays.tsx` 的 `buildMenuItems`）有「原始事件」项，把该消息的 `ChatMessage` 对象 pretty-print 成 JSON 展示在毛玻璃浮层（状态在 `ui.tsx` 的 `rawMessage`），可一键复制，用于排查元素类型渲染问题。
+
+**markdown 渲染**（`components/MessageMarkdown.tsx`）：基于 `react-markdown` + `remark-gfm` + `rehype-raw`，按 bot 协议族（`mdFamily`：telegram/discord/qq，未知协议走 GFM 通用）预处理方言语法——Telegram：`||剧透||` `__下划线__` `~删除线~`、单星 `*粗体*` 转双星；Discord：`||剧透||`、行首 `-#` 小字；QQ 方言基本兼容 GFM 直渲。**防 XSS：预处理先把用户内容的 `<` 全部转义（不转 `>` 以保留引用块语法），rehype-raw 只放行预处理注入的 `<u>`/`<span class="md-spoiler">` 等标签**；链接强制 `target=_blank rel=noreferrer`，图片走 `resolveMediaSrc` + `referrerPolicy=no-referrer`。样式集中在 `index.css` 的 `.md-body` 段（`.md-me` 适配自己蓝气泡白字，`.md-spoiler` 默认遮盖悬停显示，`.md-subtext` 为 DC 小字）。
+
 ## 关键约束（踩过的坑，改动时务必遵守）
 
 - **`hooks.message` 回调必须调用 `next()`**，否则该消息对所有下游插件被吞掉；且禁止在钩子里 await 慢操作（db/协议端调用）——会话资料补全（`ProfileService.syncMessage`）是 fire-and-forget 的，防止拖慢所有下游插件。
@@ -135,13 +144,13 @@ pnpm exec tsc --noEmit -p packages/core      # core 类型检查（template 需�
 - express v5 通配符写法是 `/botweb/*splat`；API 路由必须注册在 SPA 兜底之前。
 - `express.json({ limit: '50mb' })` 不能删——图片/文件以 base64 随 JSON 发送，默认 100kb 会被拒且 express 返回 HTML 错误页。
 - 时间戳单位混乱：karin 事件是**秒**，但部分接口返回**毫秒**——前端一律经 `toMillis()` 归一（>1e12 视为毫秒）。
-- 前端整体布局为 **QQ NT 桌面版式**：`NavRail` 固定窄导航栏（顶部头像+昵称、点击头像弹账号切换列表，中部「聊天/联系人」，底部「主题/设置」弹层）+ `Sidebar` 第二栏（随 `ui.tsx` 的 `navView` 切换聊天/联系人/设置视图）+ `ChatWindow` 主区域；导航栏底色用 `index.css` 的 `--tg-rail` 变量。消息区视觉仍为 **Telegram Desktop 经典风格**：配色集中在 `index.css` 的 `tg-*` CSS 变量（`:root` 浅色 / `.dark` 深色），经 `@theme inline` 映射为 tailwind 的 `bg-tg-*`/`text-tg-*` 等工具类；暗色由 `state/ui.tsx` 给根元素挂 `.dark` class + tailwind `dark:` 变体（`@custom-variant`）驱动。气泡尾巴是 `.bubble-tail-me/.bubble-tail-them` 纯 CSS 三角。
+- 前端整体视觉为 **Mac 版 QQ（QQ NT macOS）风格**：`NavRail` 固定窄功能栏（顶部装饰性 macOS 红绿灯 `.traffic-lights`，头像+昵称、点击头像弹账号切换列表，中部「消息/联系人」，底部「主题/设置」弹层）+ `Sidebar` 第二栏（随 `ui.tsx` 的 `navView` 切换聊天/联系人/设置视图）+ `ChatWindow` 主区域。配色集中在 `index.css` 的 `qq-*` CSS 变量（`:root` 浅色：QQ 品牌蓝 `#0099ff` + macOS 灰阶；`.dark` 深色：`#0a84ff` + 深灰阶），经 `@theme inline` 映射为 tailwind 的 `bg-qq-*`/`text-qq-*` 等工具类；暗色由 `state/ui.tsx` 给根元素挂 `.dark` class 驱动（变量自动切换，尽量不用 `dark:` 变体）。**颜色一律走 qq 变量，禁止写死 hex**——红色系（错误/危险/撤回）统一 `bg-qq-badge`/`text-qq-badge`（`#ff3b30`/深色 `#ff453a` 自动切换）。浮层（菜单/弹层/对话框/Toast）统一 `.glass` 毛玻璃类；消息气泡是 `.bubble` 16px 大圆角**无尾巴**（自己蓝气泡白字、对方白/深灰气泡+细边框）。`index.css` 用 `@source not "./generated/html.ts"` 排除构建产物，防止旧类名被 Tailwind 内容扫描自我延续。
 - QQ 图床按 referer 防盗链：所有 `<img>` 必须带 `referrerPolicy="no-referrer"`；karin 的 `base64://` 前缀需转成 data URL（`resolveMediaSrc`）。
 - QQ 小黄脸（face 元素）：图源已**本地化**——`core/scripts/download-faces.mjs` 把 koishijs/QFace 的动图/静态图下载到 `core/resources/faces/{gif,static}/` 并生成 `manifest.json`（清单接口 data.jsdelivr.com 部分网络 403，脚本改为直接探测 CDN id 0..399，已存在文件会跳过），由 core 的 `GET /botweb/faces/manifest.json` 与 `/botweb/faces/:type/:name` 路由托管（不鉴权、长缓存，注册在 SPA 兜底之前）。`MessageFace` 按 本地动图→本地静态图→`[表情:id]` 文本 三级降级（url 工具在 template `utils.ts` 的 `qqFaceGif/qqFacePng`）。
 - **表情资源前端持久缓存**（`template/src/client/faceCache.ts`）：blob 存 IndexedDB（`botweb-faces/faces`），命中后 `<img>` 直接用 object URL、零网络请求；回源并发限 6；manifest 内存缓存一次；打开 QFace 页签时后台预热全部静态图。改表情相关代码时 `<img>` 的 src 必须走 `useCachedSrc()`，不要直接用远程/路由 url。
 - **QQ 平台适配**：`BotInfo.protocol` 携带 `bot.adapter.protocol`（契约两边已同步）；`utils.isQQProtocol` 判定 QQ 协议实现（`icqq/gocq-http/napcat/oicq/llonebot/lagrange`，**qqbot 官方 API 不支持经典小黄脸，不计入**）。QQ bot 的表情面板有「QFace」横向分类，点选后表情以**内联图片**插入输入框光标处（见下条），与文本混排，发送时按出现顺序解析为 text/face 元素序列；非 QQ bot 无此分类、不能发 face。
 - **输入框是 contenteditable 富文本**（`.rich-input`，非受控组件）：QQ 表情（`<img data-face-id>`）与待发送图片（`<img data-image-id class="rich-image">`，dataURL 存 `pendingImagesRef` 不塞 DOM 属性）内联混排，发送时 `parseEditor()` 遍历 DOM 按出现顺序解析为 text/face/image 元素序列再拆 @；粘贴只取纯文本、粘贴图片内联进编辑器、粘贴其他文件走 handleFiles 直发；空态由 `syncEmpty()` 手动同步（驱动发送按钮禁用）；placeholder 靠 CSS `.rich-input:empty::before`。选择表情/插入 @ 后必须 `editor.focus()`，否则回车会触发聚焦的按钮而不是发送。
-- **附件按钮是 TG 风格小菜单**（InputArea `showAttach`）：「图片」打开 `accept='image/*'` 选择器，选中的图片内联进输入框与文本混排；「文件」打开 `*/*` 选择器，选中后走 `handleFiles` **直接发送**（video/audio/image/file 按类型映射元素，不再有 stagedImages 待发送区）。**拖拽/粘贴的图片也内联进输入框**（拖拽经 ui.tsx 的 `pendingImages` 由 InputArea 消费，与 pendingMention 同模式），其他文件直发。注意文件选择器 `onChange` 必须**先 `Array.from` 拷贝再清空 `input.value`**——`input.files` 的 FileList 是活动的，清空后已捕获的 FileList 会变空。
+- **附件按钮是毛玻璃小菜单**（InputArea `showAttach`）：「图片」打开 `accept='image/*'` 选择器，选中的图片内联进输入框与文本混排；「文件」打开 `*/*` 选择器，选中后走 `handleFiles` **直接发送**（video/audio/image/file 按类型映射元素，不再有 stagedImages 待发送区）。**拖拽/粘贴的图片也内联进输入框**（拖拽经 ui.tsx 的 `pendingImages` 由 InputArea 消费，与 pendingMention 同模式），其他文件直发。注意文件选择器 `onChange` 必须**先 `Array.from` 拷贝再清空 `input.value`**——`input.files` 的 FileList 是活动的，清空后已捕获的 FileList 会变空。
 - **消息 sqlite 持久化**（`service/db.ts` 的 `messageDb`，同库 `messages` 表）：主键 `(self_id, scene, peer, message_id)`，`time` 存**毫秒**（入库时 >1e12 判定归一），`elements` 存 JSON。写入用 `INSERT OR IGNORE`（自己发的消息会被 send 接口与协议端回显各写一次，后到者忽略）；入库前把 `data:` 开头的 base64 媒体降级为占位文本（防撑爆 db）。**写入受设置门控**（全局 `messageStore` 开关 + `messageStoreBots` 按 bot 单独开关，见上条设置约束）。`hooks.message` 里写库与 ProfileService 一样是 **fire-and-forget，禁止 await**。撤回走 `markRecalled` 置 `recalled = 1`，前端刷新后仍保持撤回红框态。
 - 前端消息**只存内存**（messageMap），启动时按 bot 调 `GET /bots/:selfId/messages` 全量拉取；reducer 的 `merge` 按 key 合并 + messageId 去重 + 时间排序，不覆盖拉取完成前到达的 WS 实时消息。localStorage 只剩未读数（`botweb:unread:{selfId}`）与登录态。
 - tsdown 的 core 构建要求 template 已构建（`dist/index.js` + `index.d.ts` 存在），否则类型检查和打包都会失败。

@@ -98,6 +98,9 @@ export const getMessageSummary = (elements?: MessageElement[]): string => {
       case 'file': return `[文件]${p.name || ''}`
       case 'video': return '[视频]'
       case 'record': return '[语音]'
+      case 'forward': return '[合并转发]'
+      case 'markdown': return p.content
+      case 'buttons': return '[按钮]'
       case 'other': return p.text || '[暂不支持的消息]'
       default: return '[消息]'
     }

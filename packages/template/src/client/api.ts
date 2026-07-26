@@ -1,6 +1,7 @@
 import {
   ApiResult,
   BotInfo,
+  ForwardMessageItem,
   FriendItem,
   GroupItem,
   GroupMemberItem,
@@ -52,6 +53,10 @@ export const getGroupMembers = (selfId: string, groupId: string) =>
 /** 批量获取用户头像（后端走协议端 getAvatarUrl + db 缓存，返回 userId -> url） */
 export const getAvatars = (selfId: string, ids: string[]) =>
   request<Record<string, string>>(`/api/bots/${encodeURIComponent(selfId)}/avatars?ids=${ids.map(encodeURIComponent).join(',')}`)
+
+/** 拉取合并转发消息内容（resId 来自 forward 元素，点击卡片时按需调用） */
+export const getForward = (selfId: string, resId: string) =>
+  request<ForwardMessageItem[]>(`/api/bots/${encodeURIComponent(selfId)}/forward?resId=${encodeURIComponent(resId)}`)
 
 export interface SendMessagePayload {
   selfId: string

@@ -69,7 +69,7 @@ const FaceCell: React.FC<{ id: number, onSelect: (id: number) => void }> = ({ id
   return (
     <button
       onClick={() => onSelect(id)}
-      className='p-1 rounded-lg transition-colors hover:bg-tg-hover'
+      className='p-1 rounded-lg transition-colors hover:bg-qq-hover'
       title={`[表情:${id}]`}
     >
       {src
@@ -82,9 +82,16 @@ const FaceCell: React.FC<{ id: number, onSelect: (id: number) => void }> = ({ id
             className='w-7 h-7 object-contain'
           />
           )
-        : <span className='block w-7 h-7 rounded bg-tg-hover animate-pulse' />}
+        : <span className='block w-7 h-7 rounded bg-qq-hover animate-pulse' />}
     </button>
   )
+}
+
+/** QFace 页签图标：与表情格子一样走前端 IndexedDB 缓存，不直拼 URL */
+const QFaceTabIcon: React.FC = () => {
+  const src = useCachedSrc(qqFacePng(14))
+  if (!src) return <span className='block w-4 h-4 rounded bg-qq-hover animate-pulse' />
+  return <img src={src} alt='' className='w-4 h-4 object-contain' />
 }
 
 /** Emoji 选择面板：横向分类（Emoji / QFace），点击外部 / Esc 关闭 */
@@ -117,15 +124,15 @@ export const EmojiPicker: React.FC<EmojiPickerProps> = ({ onSelect, onSelectFace
       <div
         // preventDefault：避免点击面板时输入框失焦丢失光标位置
         onMouseDown={(e) => e.preventDefault()}
-        className='absolute bottom-full mb-2 left-0 w-80 max-h-72 overflow-hidden rounded-xl shadow-xl border border-tg-border bg-tg-bg z-50 animate-in fade-in slide-in-from-bottom-2 duration-150 flex flex-col'
+        className='absolute bottom-full mb-2 left-3 w-80 max-h-72 overflow-hidden rounded-xl shadow-2xl glass z-50 animate-in fade-in slide-in-from-bottom-2 duration-150 flex flex-col'
       >
         {/* 横向分类条：Emoji 在前，QQ 协议 bot 追加 QFace */}
-        <div className='flex items-center gap-1 px-2 py-1.5 border-b border-tg-border shrink-0 overflow-x-auto no-scrollbar'>
+        <div className='flex items-center gap-1 px-2 py-1.5 border-b border-qq-border shrink-0 overflow-x-auto no-scrollbar'>
           <button
             onClick={() => setTab('emoji')}
             className={cn(
               'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs whitespace-nowrap transition-colors',
-              tab === 'emoji' ? 'bg-tg-blue/15 text-tg-blue font-medium' : 'text-tg-text-secondary hover:bg-tg-hover'
+              tab === 'emoji' ? 'bg-qq-blue/15 text-qq-blue font-medium' : 'text-qq-text-secondary hover:bg-qq-hover'
             )}
           >
             <Smile className='w-4 h-4' />
@@ -136,10 +143,10 @@ export const EmojiPicker: React.FC<EmojiPickerProps> = ({ onSelect, onSelectFace
               onClick={() => setTab('qqface')}
               className={cn(
                 'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs whitespace-nowrap transition-colors',
-                tab === 'qqface' ? 'bg-tg-blue/15 text-tg-blue font-medium' : 'text-tg-text-secondary hover:bg-tg-hover'
+                tab === 'qqface' ? 'bg-qq-blue/15 text-qq-blue font-medium' : 'text-qq-text-secondary hover:bg-qq-hover'
               )}
             >
-              <img src={qqFacePng(14)} alt='' className='w-4 h-4 object-contain' />
+              <QFaceTabIcon />
               QFace
             </button>
           )}
@@ -156,7 +163,7 @@ export const EmojiPicker: React.FC<EmojiPickerProps> = ({ onSelect, onSelectFace
               )
             : EMOJI_GROUPS.map(group => (
               <div key={group.name} className='p-2 pb-1'>
-                <div className='px-2 py-1 text-xs text-tg-text-secondary'>
+                <div className='px-2 py-1 text-xs text-qq-text-secondary'>
                   {group.name}
                 </div>
                 <div className='grid grid-cols-8'>
@@ -164,7 +171,7 @@ export const EmojiPicker: React.FC<EmojiPickerProps> = ({ onSelect, onSelectFace
                     <button
                       key={emoji}
                       onClick={() => onSelect(emoji)}
-                      className='p-1.5 text-xl leading-none rounded-lg transition-colors hover:bg-tg-hover'
+                      className='p-1.5 text-xl leading-none rounded-lg transition-colors hover:bg-qq-hover'
                     >
                       {emoji}
                     </button>

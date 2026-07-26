@@ -37,6 +37,9 @@ interface UiContextType {
   setConfirmDialog: (v: { title: string, message: string, onConfirm: () => void, confirmText?: string, cancelText?: string } | null) => void
   contextMenu: ContextMenuState | null
   setContextMenu: (v: ContextMenuState | null) => void
+  /** 「原始事件」浮层展示的消息对象（右键菜单触发） */
+  rawMessage: ChatMessage | null
+  setRawMessage: (v: ChatMessage | null) => void
 
   // 回复 / @ 草稿 / 跳转高亮
   replyTo: ChatMessage | null
@@ -68,6 +71,7 @@ export const UiProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   const [alertDialog, setAlertDialog] = useState<{ title: string, message: string } | null>(null)
   const [confirmDialog, setConfirmDialog] = useState<{ title: string, message: string, onConfirm: () => void, confirmText?: string, cancelText?: string } | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
+  const [rawMessage, setRawMessage] = useState<ChatMessage | null>(null)
 
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
   const [pendingMention, setPendingMention] = useState<string | null>(null)
@@ -107,16 +111,16 @@ export const UiProvider: React.FC<{ children: React.ReactNode }> = ({ children }
     return () => mediaQuery.removeEventListener('change', handler)
   }, [])
 
-  // 根元素挂 .dark class，组件用 tailwind 的 dark: 变体 + tg-* 变量配色
+  // 根元素挂 .dark class，组件配色走 qq-* CSS 变量（.dark 下自动切换）
   useEffect(() => {
     document.documentElement.classList.toggle('dark', actualTheme === 'dark')
   }, [actualTheme])
 
-  /** 回复跳转后的短暂高亮 */
+  /** 回复跳转后的短暂高亮（与 index.css 的 qq-highlight 动画时长一致） */
   const flashMessage = useCallback((messageId: string) => {
     setFlashMessageId(messageId)
     if (flashTimerRef.current) clearTimeout(flashTimerRef.current)
-    flashTimerRef.current = setTimeout(() => setFlashMessageId(null), 1600)
+    flashTimerRef.current = setTimeout(() => setFlashMessageId(null), 2000)
   }, [])
 
   return (
@@ -134,6 +138,8 @@ export const UiProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       setConfirmDialog,
       contextMenu,
       setContextMenu,
+      rawMessage,
+      setRawMessage,
       replyTo,
       setReplyTo,
       pendingMention,

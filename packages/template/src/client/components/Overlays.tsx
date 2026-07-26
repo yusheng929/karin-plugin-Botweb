@@ -1,5 +1,5 @@
 import React from 'react'
-import { AtSign, Hand, UserMinus, Copy, Reply, Undo2, Download, ImageIcon } from 'lucide-react'
+import { AtSign, Hand, UserMinus, Copy, Reply, Undo2, Download, ImageIcon, Braces, X } from 'lucide-react'
 import { useChat } from '../state/chat'
 import { useUi } from '../state/ui'
 import { pokeGroupMember, pokeFriend, kickGroupMember } from '../api'
@@ -16,6 +16,7 @@ export const Overlays: React.FC = () => {
     toast, confirmDialog, setConfirmDialog,
     alertDialog, setAlertDialog,
     contextMenu, setContextMenu,
+    rawMessage, setRawMessage,
     setPendingMention, setReplyTo, setToast
   } = useUi()
 
@@ -172,6 +173,11 @@ export const Overlays: React.FC = () => {
         label: '回复',
         icon: <Reply className='w-4 h-4' />,
         onClick: () => setReplyTo(msg)
+      },
+      {
+        label: '原始事件',
+        icon: <Braces className='w-4 h-4' />,
+        onClick: () => setRawMessage(msg)
       }
     ]
     if (imageEl) {
@@ -195,7 +201,7 @@ export const Overlays: React.FC = () => {
     return items
   }
 
-  if (!toast && !confirmDialog && !alertDialog && !contextMenu) return null
+  if (!toast && !confirmDialog && !alertDialog && !contextMenu && !rawMessage) return null
 
   return (
     <>
@@ -209,30 +215,71 @@ export const Overlays: React.FC = () => {
         />
       )}
 
-      {/* Toast（TG 风格底部深色浮条） */}
-      {toast && (
-        <div className='fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] animate-in slide-in-from-bottom-3 fade-in duration-200'>
-          <div className='bg-[#212121]/95 dark:bg-[#f5f5f5]/95 text-white dark:text-black px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2.5'>
-            <div className={cn('w-2 h-2 rounded-full shrink-0',
-              toast.type === 'success' ? 'bg-tg-badge' : toast.type === 'error' ? 'bg-red-500' : 'bg-tg-blue')}
-            />
-            <span className='text-sm'>{toast.message}</span>
+      {/* 原始事件浮层：展示消息对象 JSON，可一键复制 */}
+      {rawMessage && (
+        <div
+          className='fixed inset-0 z-[300] bg-black/40 flex items-center justify-center p-4 animate-in fade-in duration-200'
+          onClick={() => setRawMessage(null)}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <div
+            className='glass rounded-2xl shadow-2xl w-full max-w-[520px] max-h-[75vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200'
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className='flex items-center justify-between px-4 py-3 border-b border-qq-border/40 shrink-0'>
+              <span className='text-[14px] font-medium'>原始事件</span>
+              <div className='flex items-center gap-1'>
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(JSON.stringify(rawMessage, null, 2))
+                      .then(() => setToast({ message: '已复制', type: 'success' }))
+                      .catch(() => setToast({ message: '复制失败', type: 'error' }))
+                  }}
+                  className='p-1.5 rounded-full hover:bg-qq-hover transition-colors text-qq-text-secondary'
+                  title='复制 JSON'
+                >
+                  <Copy className='w-4 h-4' />
+                </button>
+                <button
+                  onClick={() => setRawMessage(null)}
+                  className='p-1.5 rounded-full hover:bg-qq-hover transition-colors text-qq-text-secondary'
+                  title='关闭'
+                >
+                  <X className='w-4 h-4' />
+                </button>
+              </div>
+            </div>
+            <pre className='flex-1 overflow-auto px-4 py-3 text-[12px] leading-relaxed font-mono whitespace-pre-wrap break-all select-text'>
+              {JSON.stringify(rawMessage, null, 2)}
+            </pre>
           </div>
         </div>
       )}
 
-      {/* Confirm Dialog */}
+      {/* Toast（Mac QQ 风格底部毛玻璃浮条） */}
+      {toast && (
+        <div className='fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] animate-in slide-in-from-bottom-3 fade-in duration-200'>
+          <div className='glass text-qq-text px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-2.5'>
+            <div className={cn('w-2 h-2 rounded-full shrink-0',
+              toast.type === 'error' ? 'bg-qq-badge' : 'bg-qq-blue')}
+            />
+            <span className='text-[13px]'>{toast.message}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Dialog（macOS 告警框：居中内容 + hairline 分隔的等宽按钮） */}
       {confirmDialog && (
-        <div className='fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/40 animate-in fade-in duration-150'>
-          <div className='w-full max-w-[320px] rounded-2xl shadow-2xl bg-tg-bg animate-in zoom-in-95 duration-150 overflow-hidden'>
-            <div className='p-5 pb-3'>
-              <h3 className='text-base font-semibold mb-1.5'>{confirmDialog.title}</h3>
-              <p className='text-sm text-tg-text-secondary leading-relaxed'>{confirmDialog.message}</p>
+        <div className='fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/30 animate-in fade-in duration-150'>
+          <div className='w-full max-w-[270px] glass rounded-2xl shadow-2xl animate-in zoom-in-95 duration-150 overflow-hidden'>
+            <div className='px-5 pt-5 pb-4 text-center'>
+              <h3 className='text-[15px] font-semibold mb-1.5'>{confirmDialog.title}</h3>
+              <p className='text-xs text-qq-text-secondary leading-relaxed'>{confirmDialog.message}</p>
             </div>
-            <div className='flex justify-end gap-1 px-3 pb-3'>
+            <div className='flex border-t border-qq-divider divide-x divide-qq-divider'>
               <button
                 onClick={() => setConfirmDialog(null)}
-                className='px-4 py-2 text-sm font-medium text-tg-blue rounded-lg hover:bg-tg-hover transition-colors uppercase'
+                className='flex-1 py-2.5 text-[14px] text-qq-blue hover:bg-qq-hover transition-colors'
               >
                 {confirmDialog.cancelText || '取消'}
               </button>
@@ -241,7 +288,7 @@ export const Overlays: React.FC = () => {
                   confirmDialog.onConfirm()
                   setConfirmDialog(null)
                 }}
-                className='px-4 py-2 text-sm font-medium text-tg-blue rounded-lg hover:bg-tg-hover transition-colors uppercase'
+                className='flex-1 py-2.5 text-[14px] font-semibold text-qq-blue hover:bg-qq-hover transition-colors'
               >
                 {confirmDialog.confirmText || '确定'}
               </button>
@@ -250,18 +297,18 @@ export const Overlays: React.FC = () => {
         </div>
       )}
 
-      {/* Alert Dialog */}
+      {/* Alert Dialog（macOS 告警框） */}
       {alertDialog && (
-        <div className='fixed inset-0 z-[111] flex items-center justify-center p-4 bg-black/40 animate-in fade-in duration-150'>
-          <div className='w-full max-w-[320px] rounded-2xl shadow-2xl bg-tg-bg animate-in zoom-in-95 duration-150 overflow-hidden'>
-            <div className='p-5 pb-3'>
-              <h3 className='text-base font-semibold mb-1.5'>{alertDialog.title}</h3>
-              <p className='text-sm text-tg-text-secondary leading-relaxed'>{alertDialog.message}</p>
+        <div className='fixed inset-0 z-[111] flex items-center justify-center p-4 bg-black/30 animate-in fade-in duration-150'>
+          <div className='w-full max-w-[270px] glass rounded-2xl shadow-2xl animate-in zoom-in-95 duration-150 overflow-hidden'>
+            <div className='px-5 pt-5 pb-4 text-center'>
+              <h3 className='text-[15px] font-semibold mb-1.5'>{alertDialog.title}</h3>
+              <p className='text-xs text-qq-text-secondary leading-relaxed'>{alertDialog.message}</p>
             </div>
-            <div className='flex justify-end px-3 pb-3'>
+            <div className='flex border-t border-qq-divider'>
               <button
                 onClick={() => setAlertDialog(null)}
-                className='px-4 py-2 text-sm font-medium text-tg-blue rounded-lg hover:bg-tg-hover transition-colors uppercase'
+                className='flex-1 py-2.5 text-[14px] font-semibold text-qq-blue hover:bg-qq-hover transition-colors'
               >
                 确定
               </button>

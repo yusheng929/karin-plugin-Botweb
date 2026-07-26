@@ -3,7 +3,8 @@ import { Send, Loader2 } from 'lucide-react'
 import { login } from '../auth'
 
 /**
- * 登录页：输入 karin 的 HTTP_AUTH_KEY，调 karin 的 /api/v1/login 换取 JWT。
+ * 登录页（仿 macOS QQ 登录窗）：圆角卡片 + 红绿灯装饰 + 居中大标 + 胶囊输入/按钮。
+ * 输入 karin 的 HTTP_AUTH_KEY，调 karin 的 /api/v1/login 换取 JWT。
  * 登录态写入 karin WebUI 同款 localStorage 键，与其双向共享（任一边登录，两边都免登录）。
  * 登录成功后 auth 模块会通知入口切换到面板，本组件无需回调。
  */
@@ -26,45 +27,56 @@ export const LoginScreen: React.FC = () => {
   }
 
   return (
-    <div className='flex h-full items-center justify-center bg-tg-chat-bg font-sans antialiased'>
-      <div className='w-full max-w-[360px] mx-4 rounded-2xl bg-tg-bg shadow-xl p-8 animate-in zoom-in-95 duration-200'>
-        <div className='flex flex-col items-center mb-8'>
-          <div className='w-20 h-20 rounded-full bg-tg-blue flex items-center justify-center mb-4 shadow-lg'>
-            <Send className='w-9 h-9 text-white -ml-1' />
-          </div>
-          <h1 className='text-xl font-semibold'>BotWeb</h1>
-          <p className='text-sm text-tg-text-secondary mt-1.5'>请输入 HTTP_AUTH_KEY 登录</p>
+    <div className='flex h-full items-center justify-center bg-qq-sidebar font-sans antialiased'>
+      <div className='w-full max-w-[340px] mx-4 bg-qq-bg rounded-2xl shadow-2xl shadow-black/10 overflow-hidden animate-in zoom-in-95 duration-200'>
+        {/* macOS 标题栏装饰 */}
+        <div className='traffic-lights px-4 pt-4'>
+          <span className='tl-close' />
+          <span className='tl-min' />
+          <span className='tl-max' />
         </div>
 
-        <form
-          onSubmit={(e) => {
-            e.preventDefault()
-            submit()
-          }}
-          className='flex flex-col gap-4'
-        >
-          <input
-            type='password'
-            value={key}
-            onChange={e => setKey(e.target.value)}
-            placeholder='HTTP_AUTH_KEY'
-            autoFocus
-            className='w-full px-4 py-3 rounded-xl bg-tg-hover text-sm outline-none placeholder:text-tg-text-secondary focus:ring-2 focus:ring-tg-blue/50 transition-shadow'
-          />
-          {error && <p className='text-xs text-red-500 leading-relaxed'>{error}</p>}
-          <button
-            type='submit'
-            disabled={loading || !key.trim()}
-            className='w-full py-3 rounded-xl bg-tg-blue text-white text-sm font-medium uppercase tracking-wide transition-colors hover:bg-tg-blue-hover disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2'
-          >
-            {loading && <Loader2 className='w-4 h-4 animate-spin' />}
-            登录
-          </button>
-        </form>
+        <div className='px-9 pb-9 pt-4'>
+          <div className='flex flex-col items-center mb-8'>
+            <div className='w-[76px] h-[76px] rounded-full bg-gradient-to-b from-[#3cbaff] to-qq-blue flex items-center justify-center mb-4 shadow-lg shadow-qq-blue/30'>
+              <Send className='w-8 h-8 text-white -ml-1' />
+            </div>
+            <h1 className='text-[19px] font-semibold tracking-wide'>BotWeb</h1>
+            <p className='text-xs text-qq-text-secondary mt-1.5'>请输入 HTTP_AUTH_KEY 登录</p>
+          </div>
 
-        <p className='text-xs text-tg-text-secondary text-center mt-6 leading-relaxed'>
-          与 Karin WebUI 共享登录态，任一边登录后两边均免登录
-        </p>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              submit()
+            }}
+            className='flex flex-col gap-3'
+          >
+            <input
+              type='password'
+              value={key}
+              onChange={e => setKey(e.target.value)}
+              placeholder='HTTP_AUTH_KEY'
+              autoFocus
+              className='w-full h-10 px-4 rounded-full bg-qq-input text-[13px] text-center outline-none placeholder:text-qq-text-secondary focus:ring-2 focus:ring-qq-blue/50 transition-shadow'
+            />
+            {error && <p className='text-xs text-qq-badge text-center leading-relaxed'>{error}</p>}
+            <button
+              type='submit'
+              disabled={loading || !key.trim()}
+              className='w-full h-10 rounded-full bg-qq-blue text-white text-[14px] font-medium transition-colors hover:bg-qq-blue-hover disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2'
+            >
+              {loading && <Loader2 className='w-4 h-4 animate-spin' />}
+              登录
+            </button>
+          </form>
+
+          <p className='text-[11px] text-qq-text-secondary text-center mt-7 leading-relaxed'>
+            与 Karin WebUI 共享登录态
+            <br />
+            任一边登录后两边均免登录
+          </p>
+        </div>
       </div>
     </div>
   )

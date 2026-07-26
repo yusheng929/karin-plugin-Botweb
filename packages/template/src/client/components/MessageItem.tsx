@@ -1,11 +1,13 @@
 import React, { useState } from 'react'
-import { AlertCircle, Clock, FileIcon, Download } from 'lucide-react'
-import { ChatMessage, MessageElement } from '../../core/types'
+import { AlertCircle, Loader2, FileIcon, Download, MessagesSquare, X } from 'lucide-react'
+import { ChatMessage, ButtonItem, ForwardMessageItem, MessageElement } from '../../core/types'
 import { useChat } from '../state/chat'
 import { useUi } from '../state/ui'
 import { getMessageSummary, toMillis, formatSize, resolveMediaSrc, downloadFile, qqFaceGif, qqFacePng, cn } from '../utils'
 import { useCachedSrc } from '../faceCache'
+import { getForward } from '../api'
 import { Avatar } from './Avatar'
+import { MessageMarkdown } from './MessageMarkdown'
 
 /** QQ 表情（face 元素）：本地动图 → 本地静态图 → 占位文本 三级降级（src 走前端 IndexedDB 缓存） */
 const MessageFace: React.FC<{ id: number }> = ({ id }) => {
@@ -17,7 +19,7 @@ const MessageFace: React.FC<{ id: number }> = ({ id }) => {
     return <span className='opacity-80'>[表情:{id}]</span>
   }
   if (!src) {
-    return <span className='inline-block w-5 h-5 align-[-4px] mx-px rounded bg-tg-hover animate-pulse' />
+    return <span className='inline-block w-5 h-5 align-[-4px] mx-px rounded bg-qq-hover animate-pulse' />
   }
   return (
     <img
@@ -40,7 +42,7 @@ const MessageImage: React.FC<{ file: string, isPureMedia: boolean }> = ({ file, 
 
   if (error) {
     return (
-      <div className='max-w-[260px] px-4 py-6 rounded-lg bg-black/5 text-xs opacity-50 text-center select-none'>
+      <div className='max-w-[260px] px-4 py-6 rounded-xl bg-qq-hover text-xs opacity-50 text-center select-none'>
         [图片加载失败]
       </div>
     )
@@ -85,7 +87,7 @@ const MessageImage: React.FC<{ file: string, isPureMedia: boolean }> = ({ file, 
               e.stopPropagation()
               setContextMenu({ x: e.clientX, y: e.clientY, kind: 'image', file })
             }}
-            className='max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl cursor-default'
+            className='max-w-[90vw] max-h-[90vh] object-contain rounded-xl shadow-2xl cursor-default'
           />
         </div>
       )}
@@ -93,39 +95,201 @@ const MessageImage: React.FC<{ file: string, isPureMedia: boolean }> = ({ file, 
   )
 }
 
-/** TG 风格发送者昵称配色（按 ID hash 取色） */
-const NAME_COLORS = ['#cc5049', '#d67722', '#955cdb', '#40a920', '#309eba', '#368ad1', '#c7508b']
-
-const nameColor = (id: string) => {
-  let h = 0
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
-  return NAME_COLORS[h % NAME_COLORS.length]
+/** 气泡悬停提示的完整时间 */
+const formatFullTime = (time: number) => {
+  const d = new Date(toMillis(time))
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
-const formatTime = (time: number) =>
-  new Date(toMillis(time)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+/** 转发内容浮层里的单条元素渲染（简化版：图片不放大、嵌套转发显示占位） */
+const renderForwardElement = (part: MessageElement, idx: number): React.ReactNode => {
+  switch (part.type) {
+    case 'text':
+      return <span key={idx}>{part.text}</span>
+    case 'at':
+      return <span key={idx} className='text-qq-blue font-medium'>@{part.name || part.targetId}</span>
+    case 'face':
+      return <MessageFace key={idx} id={part.id} />
+    case 'image':
+      return (
+        <img
+          key={idx}
+          src={resolveMediaSrc(part.file)}
+          alt=''
+          referrerPolicy='no-referrer'
+          className='max-w-[240px] max-h-[240px] object-contain rounded-lg my-1 block'
+        />
+      )
+    case 'video':
+      return <video key={idx} controls src={part.file} className='max-w-[240px] max-h-[240px] rounded-lg my-1 block' />
+    case 'record':
+      return <audio key={idx} controls src={part.file} className='max-w-[240px] my-1 block' />
+    case 'file':
+      return <span key={idx} className='opacity-70'>[文件]{part.name || ''}{part.size ? `（${formatSize(part.size)}）` : ''}</span>
+    case 'reply':
+      return null
+    case 'forward':
+      return <span key={idx} className='opacity-70'>[嵌套的合并转发]</span>
+    case 'markdown':
+      return <MessageMarkdown key={idx} content={part.content} />
+    case 'buttons':
+      return <MessageButtons key={idx} rows={part.rows} />
+    default:
+      return <span key={idx} className='opacity-50'>{(part as { text?: string }).text || '[暂不支持的消息]'}</span>
+  }
+}
+
+/**
+ * QQ 按钮/键盘渲染：QQ NT 式线框小按钮，link 按钮可点击跳转，
+ * 回调/指令按钮无法在面板触发（协议端回调机制），仅展示
+ */
+const MessageButtons: React.FC<{ rows: ButtonItem[][] }> = ({ rows }) => (
+  <div className='flex flex-col gap-1.5 mt-1.5 w-full min-w-[160px]'>
+    {rows.map((row, i) => (
+      <div key={i} className='flex gap-1.5'>
+        {row.map((btn, j) => (
+          <button
+            key={j}
+            onClick={(e) => {
+              e.stopPropagation()
+              if (btn.link) window.open(btn.link, '_blank', 'noreferrer')
+            }}
+            disabled={!btn.link}
+            title={btn.link || btn.data || btn.text}
+            className={cn(
+              'flex-1 px-3 py-1 rounded-full border text-[12px] truncate transition-colors',
+              btn.style === 3
+                ? 'border-qq-badge/50 text-qq-badge'
+                : 'border-qq-blue/50 text-qq-blue',
+              btn.link ? 'hover:bg-qq-blue/10 cursor-pointer' : 'opacity-70 cursor-default'
+            )}
+          >
+            {btn.text}
+          </button>
+        ))}
+      </div>
+    ))}
+  </div>
+)
+
+/**
+ * 合并转发卡片（QQ NT 式）：列表里显示白色卡片，点击后按需调
+ * GET /bots/:selfId/forward 拉取内容，毛玻璃浮层逐条展示
+ */
+const MessageForward: React.FC<{ resId: string }> = ({ resId }) => {
+  const { currentBot } = useChat()
+  const { setToast } = useUi()
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [items, setItems] = useState<ForwardMessageItem[] | null>(null)
+
+  const openViewer = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setOpen(true)
+    if (items !== null || loading || !currentBot) return
+    setLoading(true)
+    try {
+      setItems(await getForward(currentBot.selfId, resId))
+    } catch (err) {
+      setOpen(false)
+      setToast({ message: err instanceof Error ? err.message : '获取合并转发消息失败', type: 'error' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <>
+      <div
+        onClick={openViewer}
+        className='w-[240px] rounded-xl bg-qq-bg border border-qq-border/60 shadow-sm p-3 cursor-pointer hover:bg-qq-hover transition-colors select-none'
+      >
+        <div className='flex items-center gap-2.5'>
+          <div className='w-9 h-9 rounded-lg bg-qq-blue/10 text-qq-blue flex items-center justify-center shrink-0'>
+            <MessagesSquare className='w-5 h-5' />
+          </div>
+          <div className='flex-1 min-w-0'>
+            <div className='text-[13px] font-medium text-qq-text truncate'>合并转发</div>
+            <div className='text-[11px] text-qq-text-secondary truncate'>点击展开聊天记录</div>
+          </div>
+        </div>
+      </div>
+
+      {open && (
+        <div
+          className='fixed inset-0 z-[300] bg-black/40 flex items-center justify-center p-4 animate-in fade-in duration-200'
+          onClick={() => setOpen(false)}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <div
+            className='glass rounded-2xl shadow-2xl w-full max-w-[480px] max-h-[75vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200'
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className='flex items-center justify-between px-4 py-3 border-b border-qq-border/40 shrink-0'>
+              <span className='text-[14px] font-medium'>合并转发{items ? `（${items.length} 条）` : ''}</span>
+              <button
+                onClick={() => setOpen(false)}
+                className='p-1 rounded-full hover:bg-qq-hover transition-colors text-qq-text-secondary'
+                title='关闭'
+              >
+                <X className='w-4 h-4' />
+              </button>
+            </div>
+            <div className='flex-1 overflow-y-auto px-4 py-3'>
+              {loading && (
+                <div className='flex items-center justify-center py-10 text-qq-text-secondary'>
+                  <Loader2 className='w-5 h-5 animate-spin' />
+                </div>
+              )}
+              {items?.map((item, i) => (
+                <div key={i} className='mb-3 last:mb-0'>
+                  <div className='text-[11px] text-qq-text-secondary mb-0.5'>
+                    {item.senderName} · {formatFullTime(item.time)}
+                  </div>
+                  <div className='text-[13px] leading-[1.6] break-words'>
+                    {item.elements.map(renderForwardElement)}
+                  </div>
+                </div>
+              ))}
+              {items && items.length === 0 && (
+                <div className='text-center py-10 text-[12px] text-qq-text-secondary'>暂无内容</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
 
 interface MessageItemProps {
   message: ChatMessage
   isMe: boolean
-  /** 连续消息组的第一条（显示昵称） */
+  /** 连续消息组的第一条（显示头像与昵称） */
   groupStart: boolean
-  /** 连续消息组的最后一条（显示头像与气泡尾巴） */
+  /** 连续消息组的最后一条（控制底部留白） */
   groupEnd: boolean
 }
 
+/**
+ * QQ NT 式消息行：
+ * 双侧头像（组首显示、顶部对齐），群聊他人昵称在气泡外上方（灰色小字），
+ * 时间不入气泡（悬停 tooltip + 列表居中时间戳），发送状态图标位于气泡侧边
+ */
 export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupStart, groupEnd }) => {
-  const { resendMessage, groupMembers, messages, resolveAvatar } = useChat()
+  const { resendMessage, groupMembers, messages, resolveAvatar, currentBot, currentConversation } = useChat()
   const { setConfirmDialog, setContextMenu, setToast, flashMessageId, flashMessage } = useUi()
   const isGroup = message.scene === 'group'
 
-  // 系统消息（戳一戳/撤回提示等）：居中灰色胶囊，无气泡无头像
+  // 系统消息（戳一戳/撤回提示等）：居中灰色小字，无气泡无头像
   if (message.system) {
     return (
       <div className='flex justify-center my-1.5'>
         <span
           data-message-id={message.messageId}
-          className='px-3 py-1 rounded-full bg-black/15 dark:bg-white/10 text-white dark:text-tg-text-secondary text-xs select-none'
+          className='text-[11px] text-qq-text-secondary select-none'
         >
           {message.elements.map(e => (e.type === 'text' ? e.text : '')).join('')}
         </span>
@@ -138,14 +302,20 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupSt
 
   const roleBadge = (() => {
     if (!isGroup || !senderMember) return null
-    if (senderMember.role === 'owner') return <span className='text-[10px] text-amber-500 font-medium shrink-0'>群主</span>
-    if (senderMember.role === 'admin') return <span className='text-[10px] text-emerald-500 font-medium shrink-0'>管理员</span>
+    if (senderMember.role === 'owner') {
+      return <span className='text-[10px] px-1 py-px rounded bg-amber-500/15 text-amber-500 font-medium shrink-0'>群主</span>
+    }
+    if (senderMember.role === 'admin') {
+      return <span className='text-[10px] px-1 py-px rounded bg-emerald-500/15 text-emerald-500 font-medium shrink-0'>管理员</span>
+    }
     return null
   })()
 
   const parts = message.elements
-  const hasText = parts.some(p => (p.type === 'text' && p.text.trim() !== '') || ['at', 'reply', 'face', 'file', 'record', 'other'].includes(p.type))
+  const hasText = parts.some(p => (p.type === 'text' && p.text.trim() !== '') || ['at', 'reply', 'face', 'file', 'record', 'markdown', 'buttons', 'other'].includes(p.type))
   const isPureMedia = !hasText && parts.every(p => ['image', 'video'].includes(p.type) || (p.type === 'text' && p.text.trim() === ''))
+  /** 纯合并转发消息：卡片自带底色/边框，气泡像纯媒体一样去掉背景与内边距 */
+  const isForwardOnly = parts.some(p => p.type === 'forward') && parts.every(p => p.type === 'forward' || (p.type === 'text' && p.text.trim() === ''))
 
   /** 点击引用块跳转到原消息并短暂高亮 */
   const jumpToMessage = (messageId: string) => {
@@ -168,11 +338,13 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupSt
           jumpToMessage(part.messageId)
         }}
         className={cn(
-          'mb-1 pl-2 pr-2 py-0.5 rounded text-[13px] border-l-2 border-tg-blue max-w-full truncate cursor-pointer hover:bg-tg-blue/10 transition-colors',
-          isMe ? 'bg-black/5 dark:bg-white/10' : 'bg-black/5 dark:bg-white/5'
+          'mb-1 pl-2 pr-2 py-1 rounded-md text-xs border-l-2 max-w-full truncate cursor-pointer transition-colors',
+          isMe
+            ? 'bg-white/15 border-white/60 hover:bg-white/25'
+            : 'bg-black/5 dark:bg-white/8 border-qq-blue hover:bg-qq-blue/10'
         )}
       >
-        <span className='text-tg-blue font-medium'>{target ? target.senderName : '引用消息'}</span>
+        <span className={cn('font-medium', isMe ? 'text-qq-bubble-me-text' : 'text-qq-blue')}>{target ? target.senderName : '引用消息'}</span>
         <br />
         <span className='opacity-70'>{target ? getMessageSummary(target.elements) : '[原消息未加载]'}</span>
       </div>
@@ -202,17 +374,17 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupSt
             <div
               key={idx}
               className={cn(
-                'flex items-center gap-3 p-2.5 rounded-xl transition-colors cursor-pointer group/file w-full max-w-[280px] my-0.5',
-                'bg-black/5 dark:bg-white/10 hover:bg-black/10 dark:hover:bg-white/15'
+                'flex items-center gap-3 p-2.5 rounded-lg transition-colors cursor-pointer group/file w-full max-w-[280px] my-0.5',
+                isMe ? 'bg-white/15 hover:bg-white/25' : 'bg-black/5 dark:bg-white/8 hover:bg-qq-blue/10'
               )}
               onClick={() => downloadFile(part.file, part.name)}
             >
-              <div className='w-10 h-10 rounded-full flex items-center justify-center shrink-0 bg-tg-blue text-white'>
+              <div className='w-10 h-10 rounded-lg flex items-center justify-center shrink-0 bg-qq-blue text-white'>
                 <FileIcon className='w-5 h-5' />
               </div>
               <div className='flex-1 min-w-0'>
-                <div className='text-sm font-medium truncate'>{part.name || '未知文件'}</div>
-                <div className='text-xs text-tg-text-secondary'>{formatSize(part.size)}</div>
+                <div className='text-[13px] font-medium truncate'>{part.name || '未知文件'}</div>
+                <div className={cn('text-xs', isMe ? 'text-qq-bubble-me-text/70' : 'text-qq-text-secondary')}>{formatSize(part.size)}</div>
               </div>
               <Download className='w-4 h-4 opacity-0 group-hover/file:opacity-60 transition-opacity shrink-0' />
             </div>
@@ -223,7 +395,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupSt
               key={idx}
               className={cn(
                 'font-medium cursor-pointer hover:underline rounded',
-                isMe ? 'text-tg-blue dark:text-[#7ab8f5]' : 'text-tg-blue'
+                isMe ? 'text-qq-bubble-me-text' : 'text-qq-blue'
               )}
             >
               @{part.name || part.targetId}
@@ -233,6 +405,12 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupSt
           return <MessageFace key={idx} id={part.id} />
         case 'reply':
           return renderReply(part, idx)
+        case 'forward':
+          return <MessageForward key={idx} resId={part.id} />
+        case 'markdown':
+          return <MessageMarkdown key={idx} content={part.content} isMe={isMe} />
+        case 'buttons':
+          return <MessageButtons key={idx} rows={part.rows} />
         case 'other':
           return <span key={idx} className='opacity-50'>{part.text || '[暂不支持的消息]'}</span>
         default:
@@ -247,16 +425,16 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupSt
     setContextMenu({ x: e.clientX, y: e.clientY, kind, msg: message })
   }
 
-  /** 气泡内右下角的时间与发送状态 */
-  const timeFooter = (
-    <span className={cn(
-      'inline-flex items-center gap-1 float-right ml-2 mt-1.5 text-[11px] leading-none select-none',
-      isMe ? 'text-[#5ca853] dark:text-white/50' : 'text-tg-text-secondary'
-    )}
-    >
-      {formatTime(message.time)}
-      {isMe && message.status === 'sending' && <Clock className='w-3 h-3' />}
-      {isMe && message.status === 'failed' && (
+  /** 头像地址：自己用当前 bot 头像；私聊对方用会话头像；群成员走后端 getAvatarUrl 缓存 */
+  const avatarUrl = isMe
+    ? (currentBot?.avatar || resolveAvatar(message.senderId))
+    : (!isGroup ? (currentConversation?.avatar || resolveAvatar(message.senderId)) : resolveAvatar(message.senderId))
+
+  /** 气泡侧边的发送状态（QQ 风：失败红色感叹号点击重发，发送中转圈） */
+  const statusIcon = isMe && message.status === 'sending'
+    ? <Loader2 className='w-3.5 h-3.5 mb-1 text-qq-text-secondary animate-spin shrink-0' />
+    : isMe && message.status === 'failed'
+      ? (
         <button
           onClick={() => {
             setConfirmDialog({
@@ -267,89 +445,72 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupSt
               cancelText: '取消'
             })
           }}
-          className='text-red-500 hover:text-red-600 transition-colors'
+          className='mb-1 shrink-0 text-qq-badge hover:opacity-80 transition-opacity'
           title='发送失败，点击重试'
         >
-          <AlertCircle className='w-3.5 h-3.5' />
+          <AlertCircle className='w-4 h-4' />
         </button>
-      )}
-    </span>
-  )
-
-  // 群聊里他人消息显示头像（组尾），私聊不显示头像
-  const showAvatar = isGroup && !isMe
+        )
+      : null
 
   return (
     <div
       data-message-id={message.messageId}
       onContextMenu={(e) => openMenu(e, 'message')}
       className={cn(
-        'flex items-end gap-2',
+        'flex items-start gap-2.5',
         isMe ? 'flex-row-reverse' : 'flex-row',
-        groupEnd ? 'mb-2.5' : 'mb-0.5',
+        groupEnd ? 'mb-3' : 'mb-1',
         flashMessageId === message.messageId && 'highlight-msg'
       )}
     >
-      {/* 头像列（仅群聊他人）：组尾显示头像，其余占位对齐；头像统一走后端协议端 getAvatarUrl，缺失用字母占位 */}
-      {showAvatar && (
-        <div className='w-8 shrink-0'>
-          {groupEnd && (
-            <span onContextMenu={(e) => openMenu(e, 'avatar')} className='block cursor-pointer select-none'>
-              <Avatar url={resolveAvatar(message.senderId)} name={message.senderName} className='w-8 h-8 text-sm' />
+      {/* 头像列（QQ NT：双侧均显示，组首出现、顶部对齐；其余占位保持缩进） */}
+      <div className='w-9 shrink-0'>
+        {groupStart && (
+          <span
+            onContextMenu={isMe ? undefined : (e) => openMenu(e, 'avatar')}
+            className={cn('block select-none', !isMe && 'cursor-pointer')}
+          >
+            <Avatar url={avatarUrl} name={isMe ? (currentBot?.name || '?') : message.senderName} className='w-9 h-9 text-sm' />
+          </span>
+        )}
+      </div>
+
+      <div className={cn('flex flex-col max-w-[62%] xl:max-w-[560px] min-w-0', isMe ? 'items-end' : 'items-start')}>
+        {/* 群聊他人：昵称 + 身份徽章在气泡外上方（灰色小字，QQ NT 式） */}
+        {isGroup && !isMe && groupStart && (
+          <div className='flex items-center gap-1.5 mb-1 px-0.5 max-w-full'>
+            <span className='text-xs text-qq-text-secondary truncate'>
+              {senderDisplayName}
             </span>
-          )}
-        </div>
-      )}
-
-      <div className={cn('relative flex flex-col max-w-[65%] xl:max-w-[640px] min-w-0', isMe ? 'items-end' : 'items-start')}>
-        <div
-          className={cn(
-            'bubble min-w-0 max-w-full text-sm leading-relaxed break-words',
-            message.recalled && 'border-2 border-red-500/70',
-            isPureMedia
-              ? 'overflow-hidden rounded-xl'
-              : cn(
-                'px-3 py-1.5 shadow-sm',
-                isMe
-                  ? 'bubble-me bg-tg-bubble-me text-tg-bubble-me-text'
-                  : 'bubble-them bg-tg-bubble-them text-tg-bubble-them-text'
-              )
-          )}
-        >
-          {/* 气泡尾巴（组尾文本气泡） */}
-          {!isPureMedia && groupEnd && (
-            <span className={isMe ? 'bubble-tail-me' : 'bubble-tail-them'} />
-          )}
-
-          {/* 群聊他人：组首气泡内顶部显示彩色昵称 */}
-          {isGroup && !isMe && groupStart && (
-            <div className='flex items-center gap-1.5 mb-0.5'>
-              <span
-                className='text-[13px] font-medium truncate max-w-[180px]'
-                style={{ color: nameColor(String(message.senderId)) }}
-              >
-                {senderDisplayName}
-              </span>
-              {roleBadge}
-            </div>
-          )}
-
-          {renderMessageContent()}
-          {!isPureMedia && timeFooter}
-        </div>
-
-        {/* 已撤回标记：气泡下方红色小字（对齐方向跟随 isMe，由父容器 items-end/start 控制） */}
-        {message.recalled && (
-          <span className='mt-0.5 text-xs text-red-500/80 select-none'>消息已撤回</span>
+            {roleBadge}
+          </div>
         )}
 
-        {/* 纯媒体：时间浮层盖在图上（absolute 不占布局空间，否则负 margin 会把下一条消息拉上来重叠） */}
-        {isPureMedia && (
-          <span className='absolute bottom-1.5 right-2 z-10 px-1.5 py-0.5 rounded bg-black/40 text-white text-[11px] leading-none select-none pointer-events-none'>
-            {formatTime(message.time)}
-            {isMe && message.status === 'sending' && <Clock className='inline w-3 h-3 ml-1' />}
-            {isMe && message.status === 'failed' && <AlertCircle className='inline w-3 h-3 ml-1 text-red-400' />}
-          </span>
+        <div className={cn('flex items-end gap-1.5 max-w-full', isMe && 'flex-row-reverse')}>
+          <div
+            title={formatFullTime(message.time)}
+            className={cn(
+              'bubble min-w-0 max-w-full text-[14px] leading-[1.6] break-words',
+              message.recalled && 'opacity-60',
+              isPureMedia || isForwardOnly
+                ? 'overflow-hidden rounded-xl'
+                : cn(
+                  'px-3 py-[7px]',
+                  isMe
+                    ? 'bg-qq-bubble-me text-qq-bubble-me-text'
+                    : 'bg-qq-bubble-them text-qq-bubble-them-text'
+                )
+            )}
+          >
+            {renderMessageContent()}
+          </div>
+          {statusIcon}
+        </div>
+
+        {/* 已撤回标记：气泡下方灰色小字（对齐方向跟随 isMe，由父容器 items-end/start 控制） */}
+        {message.recalled && (
+          <span className='mt-1 text-[11px] text-qq-text-secondary select-none'>此消息已被撤回</span>
         )}
       </div>
     </div>

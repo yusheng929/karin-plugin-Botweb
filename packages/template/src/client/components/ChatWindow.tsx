@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Bot, Upload, Info } from 'lucide-react'
+import { Bot, Upload, MoreHorizontal, MessageCircle } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useChat } from '../state/chat'
 import { useUi } from '../state/ui'
@@ -42,11 +42,11 @@ export const ChatWindow: React.FC = () => {
 
   if (!currentBot) {
     return (
-      <div className='flex-1 flex flex-col items-center justify-center p-8 text-center bg-tg-chat-bg'>
-        <div className='w-20 h-20 rounded-full bg-tg-blue/10 flex items-center justify-center mb-6'>
-          <Bot className='w-10 h-10 text-tg-blue' />
+      <div className='flex-1 flex flex-col items-center justify-center p-8 text-center bg-qq-chat-bg'>
+        <div className='w-20 h-20 rounded-full bg-qq-blue/10 flex items-center justify-center mb-6'>
+          <Bot className='w-10 h-10 text-qq-blue' />
         </div>
-        <p className='max-w-xs text-sm text-tg-text-secondary leading-relaxed'>
+        <p className='max-w-xs text-[13px] text-qq-text-secondary leading-relaxed'>
           未检测到已连接的 Bot。请先在 Karin 中登录 Bot 账号。
         </p>
       </div>
@@ -55,17 +55,16 @@ export const ChatWindow: React.FC = () => {
 
   if (!currentConversation) {
     return (
-      <div className='flex-1 flex flex-col items-center justify-center bg-tg-chat-bg select-none'>
-        <span className='px-4 py-1.5 rounded-full bg-black/10 dark:bg-white/10 text-sm text-tg-text-secondary'>
-          选择一个会话开始聊天
-        </span>
+      <div className='flex-1 flex flex-col items-center justify-center bg-qq-chat-bg select-none'>
+        <MessageCircle className='w-14 h-14 text-qq-text-secondary/25 mb-4' strokeWidth={1.2} />
+        <span className='text-[13px] text-qq-text-secondary'>选择一个会话开始聊天</span>
       </div>
     )
   }
 
   const subtitle = currentConversation.scene === 'group'
-    ? `${groupMembers.length > 0 ? `${groupMembers.length} 位成员` : '群聊'}`
-    : '私聊'
+    ? `${groupMembers.length > 0 ? `${groupMembers.length} 人` : '群聊'}`
+    : ''
 
   return (
     <main
@@ -74,7 +73,7 @@ export const ChatWindow: React.FC = () => {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       onContextMenu={(e) => e.preventDefault()}
-      className='flex-1 flex flex-col relative overflow-hidden bg-tg-chat-bg'
+      className='flex-1 flex flex-col relative overflow-hidden bg-qq-chat-bg'
     >
       <AnimatePresence>
         {isDragging && (
@@ -82,35 +81,37 @@ export const ChatWindow: React.FC = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className='absolute inset-0 z-[100] bg-tg-blue/15 border-2 border-dashed border-tg-blue m-4 rounded-2xl flex flex-col items-center justify-center pointer-events-none'
+            className='absolute inset-0 z-[100] bg-qq-blue/15 border-2 border-dashed border-qq-blue m-4 rounded-2xl flex flex-col items-center justify-center pointer-events-none'
           >
-            <div className='bg-tg-blue text-white p-4 rounded-full shadow-xl mb-3'>
+            <div className='bg-qq-blue text-white p-4 rounded-full shadow-xl mb-3'>
               <Upload className='w-7 h-7' />
             </div>
-            <p className='text-tg-blue font-medium'>松开鼠标添加（图片进输入框，文件直接发送）</p>
+            <p className='text-qq-blue font-medium'>松开鼠标添加（图片进输入框，文件直接发送）</p>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* 顶栏 */}
-      <header className='h-14 px-4 flex items-center justify-between bg-tg-bg border-b border-tg-border shrink-0 z-20'>
-        <div className='flex flex-col min-w-0'>
-          <h2 className='text-sm font-semibold truncate leading-tight'>
+      {/* 顶栏：白底 hairline，标题 + 群人数，右侧「···」打开会话资料 */}
+      <header className='h-[60px] px-5 flex items-center justify-between bg-qq-chat-bg border-b border-qq-border shrink-0 z-20'>
+        <div className='flex items-baseline gap-2 min-w-0'>
+          <h2 className='text-[16px] font-semibold truncate leading-tight'>
             {currentConversation.name}
           </h2>
-          <span className='text-xs text-tg-text-secondary leading-tight'>
-            {subtitle}
-          </span>
+          {subtitle && (
+            <span className='text-xs text-qq-text-secondary leading-tight shrink-0'>
+              ({subtitle})
+            </span>
+          )}
         </div>
         <button
           onClick={() => setShowSettings(!showSettings)}
           className={cn(
-            'p-2.5 rounded-full transition-colors shrink-0',
-            showSettings ? 'bg-tg-hover text-tg-blue' : 'text-tg-text-secondary hover:bg-tg-hover'
+            'p-1.5 rounded-lg transition-colors shrink-0',
+            showSettings ? 'bg-qq-hover text-qq-blue' : 'text-qq-text-secondary hover:bg-qq-hover'
           )}
           title='会话资料'
         >
-          <Info className='w-5 h-5' />
+          <MoreHorizontal className='w-5 h-5' />
         </button>
       </header>
 
