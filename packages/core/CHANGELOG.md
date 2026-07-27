@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.0.8](https://github.com/yusheng929/karin-plugin-botweb/compare/core-v1.0.7...core-v1.0.8) (2026-07-26)
+
+
+### 🔧 其他更新
+
+* **core:** Synchronize plugin versions
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * devDependencies
+    * sandbox-template bumped to 1.0.8
+
 ## [1.0.7](https://github.com/yusheng929/karin-plugin-botweb/compare/core-v1.0.6...core-v1.0.7) (2026-07-26)
 
 
