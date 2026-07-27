@@ -27,7 +27,7 @@ jobs:
       - name: 删除开发依赖并移动构建产物
         run: |
           npm pkg delete devDependencies
-          cp -r package.json lib CHANGELOG.md ${{ runner.temp }}/temp/plugin
+          cp -r package.json resources lib CHANGELOG.md ${{ runner.temp }}/temp/plugin
         working-directory: packages/core
       - name: 上传编译产物到artifact
         id: upload
