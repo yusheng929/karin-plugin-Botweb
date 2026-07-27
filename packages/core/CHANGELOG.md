@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.0.9](https://github.com/yusheng929/karin-plugin-botweb/compare/core-v1.0.8...core-v1.0.9) (2026-07-27)
+
+
+### 🐛 错误修复
+
+* 贴标签 ([fab63b7](https://github.com/yusheng929/karin-plugin-botweb/commit/fab63b73122890c0db32f31de7d2594810e94275))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * devDependencies
+    * sandbox-template bumped to 1.0.9
+
 ## [1.0.8](https://github.com/yusheng929/karin-plugin-botweb/compare/core-v1.0.7...core-v1.0.8) (2026-07-26)
 
 
