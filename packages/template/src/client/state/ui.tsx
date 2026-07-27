@@ -40,6 +40,9 @@ interface UiContextType {
   /** 「原始事件」浮层展示的消息对象（右键菜单触发） */
   rawMessage: ChatMessage | null
   setRawMessage: (v: ChatMessage | null) => void
+  /** 「贴表情」选择器（右键菜单触发）：坐标 + 目标消息，由 Overlays 渲染 ReactionPicker */
+  reactionPicker: { x: number, y: number, msg: ChatMessage } | null
+  setReactionPicker: (v: { x: number, y: number, msg: ChatMessage } | null) => void
 
   // 回复 / @ 草稿 / 跳转高亮
   replyTo: ChatMessage | null
@@ -47,6 +50,9 @@ interface UiContextType {
   /** 待插入输入框的 @ 目标 userId，由 InputArea 消费后清空 */
   pendingMention: string | null
   setPendingMention: (v: string | null) => void
+  /** 待填入输入框的内联指令（mqqapi://aio/inlinecmd 链接点击触发），由 InputArea 消费后清空 */
+  pendingInlineCmd: { command: string, enter: boolean, reply: boolean, message: ChatMessage } | null
+  setPendingInlineCmd: (v: { command: string, enter: boolean, reply: boolean, message: ChatMessage } | null) => void
   /** 待内联进输入框的图片文件（拖拽进窗口的图片），由 InputArea 消费后清空 */
   pendingImages: File[] | null
   setPendingImages: (v: File[] | null) => void
@@ -73,9 +79,11 @@ export const UiProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   const [confirmDialog, setConfirmDialog] = useState<{ title: string, message: string, onConfirm: () => void, confirmText?: string, cancelText?: string } | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   const [rawMessage, setRawMessage] = useState<ChatMessage | null>(null)
+  const [reactionPicker, setReactionPicker] = useState<{ x: number, y: number, msg: ChatMessage } | null>(null)
 
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
   const [pendingMention, setPendingMention] = useState<string | null>(null)
+  const [pendingInlineCmd, setPendingInlineCmd] = useState<{ command: string, enter: boolean, reply: boolean, message: ChatMessage } | null>(null)
   const [pendingImages, setPendingImages] = useState<File[] | null>(null)
   const [flashMessageId, setFlashMessageId] = useState<string | null>(null)
 
@@ -141,10 +149,14 @@ export const UiProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       setContextMenu,
       rawMessage,
       setRawMessage,
+      reactionPicker,
+      setReactionPicker,
       replyTo,
       setReplyTo,
       pendingMention,
       setPendingMention,
+      pendingInlineCmd,
+      setPendingInlineCmd,
       pendingImages,
       setPendingImages,
       flashMessageId,

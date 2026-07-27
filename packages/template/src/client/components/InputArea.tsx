@@ -23,7 +23,7 @@ const MAX_FILE_SIZE = 20 * 1024 * 1024
  */
 export const InputArea: React.FC = () => {
   const { currentBot, currentConversation, sendMessage, handleFiles, groupMembers, resolveAvatar } = useChat()
-  const { replyTo, setReplyTo, pendingMention, setPendingMention, pendingImages, setPendingImages, setToast } = useUi()
+  const { replyTo, setReplyTo, pendingMention, setPendingMention, pendingImages, setPendingImages, pendingInlineCmd, setPendingInlineCmd, setToast } = useUi()
   /** 编辑器是否为空（驱动发送按钮禁用态，contenteditable 为非受控组件，需手动同步） */
   const [isEmpty, setIsEmpty] = useState(true)
   const [atMenu, setAtMenu] = useState<{ filter: string } | null>(null)
@@ -79,6 +79,19 @@ export const InputArea: React.FC = () => {
     insertNode(document.createTextNode(`@${pendingMention} `))
     setPendingMention(null)
   }, [pendingMention, setPendingMention])
+
+  // mqqapi 内联指令点击：填入 @消息发送者 + 指令文本（QQ 行为），enter 时立即发送、reply 时携带回复
+  useEffect(() => {
+    if (!pendingInlineCmd) return
+    setPendingInlineCmd(null)
+    if (!currentConversation) return
+    const { command, enter, reply, message } = pendingInlineCmd
+    if (reply) setReplyTo(message)
+    // 仅群聊有 @ 语义；发送者不在群成员列表时 @ 会保留为纯文本（splitMentions 兜底）
+    if (isGroup && message.senderId) insertNode(document.createTextNode(`@${message.senderId} `))
+    insertNode(document.createTextNode(command))
+    if (enter) handleSend()
+  }, [pendingInlineCmd])
 
   // 拖拽进窗口的图片：内联进输入框（与文本混排）
   useEffect(() => {
@@ -238,7 +251,10 @@ export const InputArea: React.FC = () => {
   }
 
   const handleSend = () => {
-    if (isDisabled || !currentConversation) return
+    const editor = editorRef.current
+    if (!currentConversation || !editor) return
+    // 空态同步判定（不依赖 isEmpty state：内联指令 enter=true 等场景插入后立即调用，state 尚未更新）
+    if (!editor.textContent?.trim() && !editor.querySelector('img')) return
 
     // 编辑器内容（text/face/image 混排）解析后再拆 @；回复元素放头部
     const content: MessageElement[] = []
@@ -254,7 +270,7 @@ export const InputArea: React.FC = () => {
     if (finalContent.length === 0) return
 
     // 点击发送立即清空输入；发送结果由消息的 status（sending/failed）和 toast 体现
-    if (editorRef.current) editorRef.current.innerHTML = ''
+    editor.innerHTML = ''
     pendingImagesRef.current.clear()
     setIsEmpty(true)
     setReplyTo(null)

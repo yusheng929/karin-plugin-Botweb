@@ -1,16 +1,16 @@
 import React, { useState } from 'react'
 import { AlertCircle, Loader2, FileIcon, Download, MessagesSquare, X } from 'lucide-react'
-import { ChatMessage, ButtonItem, ForwardMessageItem, MessageElement } from '../../core/types'
+import { ChatMessage, ButtonItem, ForwardMessageItem, MessageElement, ReactionItem } from '../../core/types'
 import { useChat } from '../state/chat'
 import { useUi } from '../state/ui'
-import { getMessageSummary, toMillis, formatSize, resolveMediaSrc, downloadFile, qqFaceGif, qqFacePng, cn } from '../utils'
+import { getMessageSummary, toMillis, formatSize, resolveMediaSrc, downloadFile, qqFaceGif, qqFacePng, isQQProtocol, cn } from '../utils'
 import { useCachedSrc } from '../faceCache'
 import { getForward } from '../api'
 import { Avatar } from './Avatar'
 import { MessageMarkdown } from './MessageMarkdown'
 
 /** QQ 表情（face 元素）：本地动图 → 本地静态图 → 占位文本 三级降级（src 走前端 IndexedDB 缓存） */
-const MessageFace: React.FC<{ id: number }> = ({ id }) => {
+const MessageFace: React.FC<{ id: number, className?: string }> = ({ id, className }) => {
   // 0=动图 1=静态图 2=图源均不可用，降级为文本
   const [stage, setStage] = useState(0)
   const src = useCachedSrc(stage === 0 ? qqFaceGif(id) : qqFacePng(id))
@@ -19,7 +19,7 @@ const MessageFace: React.FC<{ id: number }> = ({ id }) => {
     return <span className='opacity-80'>[表情:{id}]</span>
   }
   if (!src) {
-    return <span className='inline-block w-5 h-5 align-[-4px] mx-px rounded bg-qq-hover animate-pulse' />
+    return <span className={cn('inline-block rounded bg-qq-hover animate-pulse', className || 'w-5 h-5 align-[-4px] mx-px')} />
   }
   return (
     <img
@@ -28,10 +28,37 @@ const MessageFace: React.FC<{ id: number }> = ({ id }) => {
       title={`[表情:${id}]`}
       referrerPolicy='no-referrer'
       onError={() => setStage(s => s + 1)}
-      className='inline-block w-5 h-5 align-[-4px] mx-px select-none'
+      className={cn('inline-block select-none', className || 'w-5 h-5 align-[-4px] mx-px')}
     />
   )
 }
+
+/** 表情回应条（QQ 贴表情聚合）：气泡下方一排小胶囊（QFace 小图 + 次数），对齐方向跟随 isMe；
+ *  QQ 协议下胶囊可点击——未贴过则贴一个同表情，已贴过（蓝色高亮）则取消（QQ 客户端同款交互） */
+const MessageReactions: React.FC<{ reactions: ReactionItem[], myFaceIds?: ReadonlySet<number>, onReact?: (faceId: number) => void }> = ({ reactions, myFaceIds, onReact }) => (
+  <div className='flex flex-wrap items-center gap-1 mt-1 select-none'>
+    {reactions.map((r) => {
+      const mine = myFaceIds?.has(r.faceId)
+      return (
+        <button
+          key={r.faceId}
+          disabled={!onReact}
+          onClick={onReact ? () => onReact(r.faceId) : undefined}
+          className={cn(
+            'flex items-center gap-1 pl-1 pr-1.5 py-0.5 rounded-full text-[11px] leading-none transition-colors',
+            mine
+              ? 'bg-qq-blue/15 text-qq-blue cursor-pointer hover:bg-qq-blue/25'
+              : cn('bg-qq-hover text-qq-text-secondary', onReact && 'cursor-pointer hover:bg-qq-active')
+          )}
+          title={mine ? `[表情:${r.faceId}] x${r.count}（已贴，点击取消）` : `[表情:${r.faceId}] x${r.count}`}
+        >
+          <MessageFace id={r.faceId} className='w-3.5 h-3.5' />
+          <span>{r.count}</span>
+        </button>
+      )
+    })}
+  </div>
+)
 
 /** 消息图片：防盗链 no-referrer、限宽限高、加载失败占位、点击遮罩看原图（支持右键菜单与下载按钮） */
 const MessageImage: React.FC<{ file: string, isPureMedia: boolean }> = ({ file, isPureMedia }) => {
@@ -279,7 +306,7 @@ interface MessageItemProps {
  * 时间不入气泡（悬停 tooltip + 列表居中时间戳），发送状态图标位于气泡侧边
  */
 export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupStart, groupEnd }) => {
-  const { resendMessage, groupMembers, messages, resolveAvatar, currentBot, currentConversation } = useChat()
+  const { resendMessage, groupMembers, messages, resolveAvatar, currentBot, currentConversation, reactMessage, hasReacted } = useChat()
   const { setConfirmDialog, setContextMenu, setToast, flashMessageId, flashMessage } = useUi()
   const isGroup = message.scene === 'group'
 
@@ -408,7 +435,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupSt
         case 'forward':
           return <MessageForward key={idx} resId={part.id} />
         case 'markdown':
-          return <MessageMarkdown key={idx} content={part.content} isMe={isMe} />
+          return <MessageMarkdown key={idx} content={part.content} isMe={isMe} message={message} />
         case 'buttons':
           return <MessageButtons key={idx} rows={part.rows} />
         case 'other':
@@ -511,6 +538,17 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupSt
         {/* 已撤回标记：气泡下方红色小字（对齐方向跟随 isMe，由父容器 items-end/start 控制） */}
         {message.recalled && (
           <span className='mt-1 text-[11px] text-qq-badge select-none'>消息已撤回</span>
+        )}
+
+        {/* 表情回应条：气泡下方小胶囊（QFace + 次数）；QQ 协议下点击胶囊贴/取消贴（自己贴过的蓝色高亮） */}
+        {message.reactions && message.reactions.length > 0 && (
+          <MessageReactions
+            reactions={message.reactions}
+            myFaceIds={new Set(message.reactions.map(r => r.faceId).filter(id => hasReacted(message, id)))}
+            onReact={isQQProtocol(currentBot?.protocol) && !message.system
+              ? (faceId) => void reactMessage(message, faceId)
+              : undefined}
+          />
         )}
       </div>
     </div>

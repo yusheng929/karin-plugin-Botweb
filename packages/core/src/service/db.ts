@@ -8,7 +8,7 @@ import fs from 'node:fs'
 import sqlite3 from '@karinjs/sqlite3'
 import { logger } from 'node-karin'
 import { dir } from '@/dir'
-import type { ChatMessage, MessageElement } from './dto'
+import type { ChatMessage, MessageElement, ReactionItem } from './dto'
 
 /** 资料行（profiles 表，kind 区分数据语义） */
 export interface ProfileRow {
@@ -96,6 +96,11 @@ const init = (): Promise<Sqlite> => {
         recalled    INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (self_id, scene, peer, message_id)
       )`)
+      // 老库迁移：补 reactions 列（QQ 表情回应聚合，JSON: ReactionItem[]，空串=无）
+      const msgCols = await db.all<{ name: string }>('PRAGMA table_info(messages)')
+      if (!msgCols.some(c => c.name === 'reactions')) {
+        await db.run(`ALTER TABLE messages ADD COLUMN reactions TEXT NOT NULL DEFAULT ''`)
+      }
       logger.info(`[BotWeb] 资料缓存 db 已就绪：${file}`)
       return db
     } catch (err) {
@@ -203,6 +208,8 @@ interface MessageRow {
   /** MessageElement[] 的 JSON */
   elements: string
   recalled: number
+  /** ReactionItem[] 的 JSON（空串=无表情回应） */
+  reactions: string
 }
 
 const MEDIA_PLACEHOLDER: Record<string, string> = {
@@ -225,6 +232,21 @@ const sanitizeElements = (elements: MessageElement[]): MessageElement[] =>
 
 /** 时间戳归一为毫秒（karin 事件是秒级，部分接口返回毫秒：>1e12 视为毫秒） */
 const toMillis = (time: number) => (time > 1e12 ? time : time * 1000)
+
+/**
+ * 应用一次表情回应增减（isSet 加 / 取消减，count 缺省按 1，减到 0 移除）。
+ * 与前端 chat.tsx reducer 的 reaction 逻辑保持一致
+ */
+const applyReactionDelta = (list: ReactionItem[], faceId: number, count: number, isSet: boolean): ReactionItem[] => {
+  const delta = isSet ? Math.max(1, count) : -Math.max(1, count)
+  const idx = list.findIndex(r => r.faceId === faceId)
+  if (idx === -1) return delta > 0 ? [...list, { faceId, count: delta }] : list
+  const next = [...list]
+  const merged = next[idx].count + delta
+  if (merged <= 0) next.splice(idx, 1)
+  else next[idx] = { faceId, count: merged }
+  return next
+}
 
 export const messageDb = {
   /**
@@ -254,6 +276,25 @@ export const messageDb = {
     )
   },
 
+  /** 应用一次表情回应（找不到行时静默忽略：消息存储关闭或插件启用前的消息） */
+  async applyReaction (
+    selfId: string, scene: ChatMessage['scene'], peer: string, messageId: string,
+    faceId: number, count: number, isSet: boolean
+  ): Promise<void> {
+    const db = await init()
+    const row = await db.get<{ reactions: string }>(
+      'SELECT reactions FROM messages WHERE self_id = ? AND scene = ? AND peer = ? AND message_id = ?',
+      [selfId, scene, peer, messageId]
+    )
+    if (!row) return
+    const list: ReactionItem[] = row.reactions ? JSON.parse(row.reactions) : []
+    const next = applyReactionDelta(list, faceId, count, isSet)
+    await db.run(
+      'UPDATE messages SET reactions = ? WHERE self_id = ? AND scene = ? AND peer = ? AND message_id = ?',
+      [JSON.stringify(next), selfId, scene, peer, messageId]
+    )
+  },
+
   /** 按 bot 取全部消息（时间升序），供前端启动时全量拉取 */
   async listByBot (selfId: string): Promise<ChatMessage[]> {
     const db = await init()
@@ -272,6 +313,7 @@ export const messageDb = {
       // 库存毫秒；ChatMessage 契约为秒级，前端统一经 toMillis() 归一，两种单位都兼容
       time: row.time,
       elements: JSON.parse(row.elements) as MessageElement[],
+      reactions: row.reactions ? JSON.parse(row.reactions) as ReactionItem[] : undefined,
       recalled: row.recalled === 1
     }))
   }

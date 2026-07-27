@@ -3,6 +3,7 @@
  * 历史消息由 GET /bots/:selfId/messages 提供（本地 sqlite 持久化，见 service/db.ts 的 messageDb）
  */
 import { MessageService } from '@/service'
+import { ReactionMessageType } from '@/service/types'
 import express, { type Router } from 'node-karin/express'
 
 const router: Router = express.Router()
@@ -15,6 +16,11 @@ router.post('/send', async (req, res) => {
 /** 撤回消息 */
 router.post('/recall', async (req, res) => {
   res.json(await MessageService.recall(req.body))
+})
+
+/** 表情回应（贴表情） */
+router.post('/reaction', async (req, res) => {
+  res.json(await MessageService.react(req.body as ReactionMessageType))
 })
 
 export default router

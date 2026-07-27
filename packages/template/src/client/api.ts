@@ -77,6 +77,13 @@ export const recallMessage = (payload: { selfId: string, scene: ChatScene, peer:
     body: JSON.stringify(payload)
   })
 
+/** 表情回应（QQ 贴表情，仅 NapCat/Lagrange 等 OneBot 协议端支持） */
+export const reactMessage = (payload: { selfId: string, scene: ChatScene, peer: string, messageId: string, faceId: number, isSet?: boolean }) =>
+  request<null>('/api/message/reaction', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+
 /** 戳一戳群成员 */
 export const pokeGroupMember = (selfId: string, groupId: string, targetId: string) =>
   request<boolean>(`/api/bots/${encodeURIComponent(selfId)}/groups/${encodeURIComponent(groupId)}/poke`, {
@@ -111,6 +118,7 @@ type MessageHandler = (msg: ChatMessage) => void
 type RecallHandler = (data: { selfId: string, messageId: string, scene: ChatScene, peer: string, operatorId?: string, targetId?: string }) => void
 type PokeHandler = (data: { selfId: string, scene: ChatScene, peer: string, operatorId: string, targetId: string, action: string, suffix: string }) => void
 type ProfilesHandler = (data: { selfId: string, friends: FriendItem[], groups: GroupItem[], users: UserAvatarItem[] }) => void
+type ReactionHandler = (data: { selfId: string, scene: ChatScene, peer: string, messageId: string, operatorId: string, faceId: number, count: number, isSet: boolean }) => void
 
 /**
  * WebSocket 客户端：连接后端推送通道（服务端只推不收，帧格式为 WsPush）。
@@ -122,6 +130,7 @@ export class WsClient {
   private recallHandlers = new Set<RecallHandler>()
   private pokeHandlers = new Set<PokeHandler>()
   private profilesHandlers = new Set<ProfilesHandler>()
+  private reactionHandlers = new Set<ReactionHandler>()
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private started = false
 
@@ -158,6 +167,8 @@ export class WsClient {
           this.pokeHandlers.forEach(h => h(push.data))
         } else if (push.type === 'profiles') {
           this.profilesHandlers.forEach(h => h(push.data))
+        } else if (push.type === 'reaction') {
+          this.reactionHandlers.forEach(h => h(push.data))
         }
       } catch (err) {
         console.error('[WS] Parse error', err)
@@ -211,6 +222,12 @@ export class WsClient {
   onProfiles (cb: ProfilesHandler) {
     this.profilesHandlers.add(cb)
     return () => { this.profilesHandlers.delete(cb) }
+  }
+
+  /** 订阅表情回应推送（QQ 贴表情），返回取消订阅函数 */
+  onReaction (cb: ReactionHandler) {
+    this.reactionHandlers.add(cb)
+    return () => { this.reactionHandlers.delete(cb) }
   }
 }
 

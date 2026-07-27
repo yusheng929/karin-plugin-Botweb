@@ -98,6 +98,12 @@ export interface ForwardMessageItem {
   elements: MessageElement[]
 }
 
+/** 消息表情回应（QQ 贴表情，faceId 为 QQ 小黄脸 id，与 template/src/core/types.ts 保持一致） */
+export interface ReactionItem {
+  faceId: number
+  count: number
+}
+
 export interface ChatMessage {
   messageId: string
   seq: number
@@ -109,6 +115,8 @@ export interface ChatMessage {
   /** 秒级时间戳 */
   time: number
   elements: MessageElement[]
+  /** 表情回应聚合（faceId -> 次数），随 reaction 推送增量更新 */
+  reactions?: ReactionItem[]
   /** 已撤回（前端给原气泡打红框标记，与 template/src/core/types.ts 保持一致） */
   recalled?: boolean
 }
@@ -146,9 +154,9 @@ export const toMemberItem = (member: GroupMemberInfo): GroupMemberItem => ({
 })
 
 /**
- * OneBot 原始消息段识别：karin 的 OneBot 适配器对未知消息段（如合并转发、markdown）
- * 会序列化成 `{"type":"forward","data":{"id":"..."}}` / `{"type":"markdown","data":{"content":"..."}}`
- * 的文本元素，这里还原为 forward / markdown 元素。无法识别时返回 null
+ * OneBot 原始消息段识别：karin 的 OneBot 适配器对未知消息段（如合并转发、markdown、
+ * mface 商城表情）会序列化成 `{"type":"forward","data":{"id":"..."}}` 等的文本元素，
+ * 这里还原为对应元素。无法识别时返回 null
  */
 const parseRawSegment = (text: string): MessageElement | null => {
   const t = text.trim()
@@ -161,6 +169,17 @@ const parseRawSegment = (text: string): MessageElement | null => {
     if (raw?.type === 'markdown' && typeof raw.data?.content === 'string') {
       return { type: 'markdown', content: raw.data.content }
     }
+    // mface：QQ 商城表情/动态贴纸（NapCat、LLOneBot 等直接给 gif url），映射为图片；
+    // 无 url 的协议端（gocq 等）降级为摘要文本
+    if (raw?.type === 'mface') {
+      const url = raw.data?.url
+      if (typeof url === 'string' && url) return { type: 'image', file: url }
+      const summary = raw.data?.summary
+      return { type: 'other', text: typeof summary === 'string' && summary ? summary : '[动画表情]' }
+    }
+    // 魔法表情：骰子/猜拳只展示占位（结果点数协议端一般不下发）
+    if (raw?.type === 'dice') return { type: 'other', text: '[骰子]' }
+    if (raw?.type === 'rps') return { type: 'other', text: '[猜拳]' }
   } catch {}
   return null
 }
@@ -173,6 +192,26 @@ const toButtonItem = (btn: KarinButton): ButtonItem => ({
   show: btn.show,
   style: btn.style
 })
+
+/** 去重比较用文本归一：折叠所有空白（兼容 \r\n/\n、全角空格与首尾差异） */
+const normalizeDupText = (s: string): string => s.replace(/\s+/g, ' ').trim()
+
+/**
+ * markdown -> 纯文本近似：去掉常见语法标记。
+ * 用于识别 NapCat/milky 等协议端随 markdown 段一起下发的「渲染后纯文本」副本
+ * （如 `# 你好` 的副本是 `你好`）；只需覆盖 QQ 常用语法，
+ * 覆盖不到时退化为原文比较，不影响正常消息
+ */
+const markdownToPlain = (md: string): string => md
+  .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1') // 图片 -> alt 文本
+  .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1') // 链接 -> 链接文本
+  .replace(/^\s{0,3}#{1,6}\s+/gm, '') // 标题
+  .replace(/^\s{0,3}>\s?/gm, '') // 引用块
+  .replace(/^\s{0,3}(?:[-*+]|\d+\.)\s+/gm, '') // 无序/有序列表
+  .replace(/(\*\*|__)(.*?)\1/g, '$2') // 粗体
+  .replace(/(\*|_)(.*?)\1/g, '$2') // 斜体
+  .replace(/~~?(.*?)~~?/g, '$1') // 删除线
+  .replace(/`{1,3}([^`]*)`{1,3}/g, '$1') // 行内代码
 
 /** karin 消息元素 -> 前端 DTO（toChatMessage 与合并转发内容共用） */
 export const convertElements = (list: Message['elements']): MessageElement[] => {
@@ -209,13 +248,18 @@ export const convertElements = (list: Message['elements']): MessageElement[] => 
     }
   })
 
-  // 部分协议端会在同一条消息里同时下发 markdown 段和它的纯文本副本，去掉重复文本防止渲染两遍
-  const mdContents = new Set(
-    converted.filter((el): el is Extract<MessageElement, { type: 'markdown' }> => el.type === 'markdown')
-      .map(el => el.content.trim())
-  )
-  if (mdContents.size === 0) return converted
-  return converted.filter(el => !(el.type === 'text' && mdContents.has(el.text.trim())))
+  // 部分协议端（NapCat/milky 等）会在同一条消息里同时下发 markdown 段和它的文本副本，
+  // 副本可能是 markdown 原文、也可能是去掉语法后的纯文本（如 `# 你好` -> `你好`），
+  // 两种形态都识别并去掉，防止前端渲染两遍
+  const mdKeys = new Set<string>()
+  for (const el of converted) {
+    if (el.type !== 'markdown') continue
+    mdKeys.add(normalizeDupText(el.content))
+    mdKeys.add(normalizeDupText(markdownToPlain(el.content)))
+  }
+  mdKeys.delete('')
+  if (mdKeys.size === 0) return converted
+  return converted.filter(el => !(el.type === 'text' && mdKeys.has(normalizeDupText(el.text))))
 }
 
 /** karin 消息事件 -> ChatMessage（仅 friend/group 场景） */

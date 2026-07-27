@@ -6,7 +6,8 @@ import {
   GroupMemberItem,
   MessageElement,
   ChatScene,
-  ChatMessage
+  ChatMessage,
+  ReactionItem
 } from '../../core/types'
 import * as api from '../api'
 import { wsClient } from '../api'
@@ -47,6 +48,10 @@ interface ChatContextType {
   recallMessage: (msg: ChatMessage) => Promise<void>
   /** 面板戳一戳成功后的本地乐观上屏（系统灰条） */
   appendLocalPoke: (scene: ChatScene, peer: string, targetId: string) => void
+  /** 贴表情/取消贴（QQ 表情回应）：自己已贴过该表情时触发取消，否则贴；成功后本地乐观聚合到消息 reactions */
+  reactMessage: (msg: ChatMessage, faceId: number) => Promise<void>
+  /** 当前 bot 是否已给该消息贴过指定表情（驱动胶囊高亮与面板重复贴拦截） */
+  hasReacted: (msg: ChatMessage, faceId: number) => boolean
   handleFiles: (files: FileList | File[] | null) => Promise<void>
 }
 
@@ -73,6 +78,20 @@ type MessageMapAction =
   | { type: 'update', key: string, messageId: string, updates: Partial<ChatMessage> }
   /** 给指定消息打已撤回标记（气泡红框 + 「消息已撤回」，幂等） */
   | { type: 'recall', key: string, messageId: string }
+  /** 应用一次表情回应增减（QQ 贴表情，与 core db.ts 的 applyReactionDelta 逻辑一致） */
+  | { type: 'reaction', key: string, messageId: string, faceId: number, count: number, isSet: boolean }
+
+/** 表情回应聚合增减：isSet 加 / 取消减，count 缺省按 1，减到 0 移除 */
+const applyReactionDelta = (list: ReactionItem[], faceId: number, count: number, isSet: boolean): ReactionItem[] => {
+  const delta = isSet ? Math.max(1, count) : -Math.max(1, count)
+  const idx = list.findIndex(r => r.faceId === faceId)
+  if (idx === -1) return delta > 0 ? [...list, { faceId, count: delta }] : list
+  const next = [...list]
+  const merged = next[idx].count + delta
+  if (merged <= 0) next.splice(idx, 1)
+  else next[idx] = { faceId, count: merged }
+  return next
+}
 
 const messageMapReducer = (state: MessageMapState, action: MessageMapAction): MessageMapState => {
   switch (action.type) {
@@ -121,6 +140,17 @@ const messageMapReducer = (state: MessageMapState, action: MessageMapAction): Me
       if (msg.recalled || msg.system) return state
       const next = [...list]
       next[idx] = { ...msg, recalled: true, status: undefined }
+      return { ...state, [action.key]: next }
+    }
+    case 'reaction': {
+      const list = state[action.key]
+      if (!list) return state
+      const idx = list.findIndex(m => m.messageId === action.messageId)
+      if (idx === -1) return state
+      const msg = list[idx]
+      const reactions = applyReactionDelta(msg.reactions || [], action.faceId, action.count, action.isSet)
+      const next = [...list]
+      next[idx] = { ...msg, reactions: reactions.length ? reactions : undefined }
       return { ...state, [action.key]: next }
     }
     default:
@@ -336,6 +366,32 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   /** 面板发起戳一戳的待回显计数（key: selfId:scene:peer:operatorId:targetId），协议端回显自己的戳一戳时按此去重 */
   const pendingPokeRef = useRef(new Map<string, { count: number, time: number }>())
 
+  /** 面板主动贴/取消贴表情的待回显队列（key: selfId:scene:peer:messageId:faceId），
+   *  协议端回显自己的 reaction 时按 isSet 匹配消费一条跳过；用队列而非单值计数，
+   *  贴→取消快速连续操作时迟到的回显不会错配（单值会被后一次操作覆盖 isSet 导致错配重复入账） */
+  const pendingReactionRef = useRef(new Map<string, Array<{ time: number, isSet: boolean }>>())
+
+  // ---------- 我贴过的表情（QQ 语义：同一用户对同一表情只贴一次，再贴即取消） ----------
+
+  /** 我贴过的表情 localStorage 键 */
+  const MY_REACTIONS_KEY = 'botweb:myreactions'
+
+  /** 我贴过的表情：`${selfId}:${scene}:${peer}:${messageId}` -> faceId[]（localStorage 持久化，刷新后仍可取消） */
+  const [myReactions, setMyReactions] = useState<Record<string, number[]>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(MY_REACTIONS_KEY) || '{}')
+    } catch {
+      return {}
+    }
+  })
+  const myReactionsRef = useRef(myReactions)
+  // 渲染期同步（不能放 useEffect：setMyReactions 触发的渲染提交时 ref 还是旧值，hasReacted 会慢一拍）
+  myReactionsRef.current = myReactions
+
+  useEffect(() => {
+    localStorage.setItem(MY_REACTIONS_KEY, JSON.stringify(myReactions))
+  }, [myReactions])
+
   /** 追加戳一戳系统灰条（WS 推送与本地乐观上屏共用） */
   const appendPoke = useCallback((selfId: string, scene: ChatScene, peer: string, operatorId: string, targetId: string, action: string, suffix: string) => {
     const opName = resolveNameRef.current(selfId, operatorId)
@@ -385,6 +441,24 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const unbindRecall = wsClient.onRecall(({ selfId, messageId, scene, peer }) => {
       applyRecall(selfId, scene, peer, messageId)
+    })
+
+    // 表情回应（QQ 贴表情）：聚合到原消息的 reactions，气泡下方渲染 QFace + 次数
+    const unbindReaction = wsClient.onReaction(({ selfId, scene, peer, messageId, operatorId, faceId, count, isSet }) => {
+      // 协议端若回显面板自己贴/取消的表情（10 秒窗口内按 isSet 匹配消费一条），跳过防重复 +1/-1
+      if (operatorId === selfId) {
+        const dedupKey = `${selfId}:${scene}:${peer}:${messageId}:${faceId}`
+        const queue = pendingReactionRef.current.get(dedupKey)
+        if (queue) {
+          const idx = queue.findIndex(e => e.isSet === isSet && Date.now() - e.time < 10_000)
+          if (idx !== -1) {
+            queue.splice(idx, 1)
+            if (queue.length === 0) pendingReactionRef.current.delete(dedupKey)
+            return
+          }
+        }
+      }
+      dispatchMessages({ type: 'reaction', key: fullKey(selfId, scene, peer), messageId, faceId, count, isSet })
     })
 
     const unbindPoke = wsClient.onPoke(({ selfId, scene, peer, operatorId, targetId, action, suffix }) => {
@@ -440,6 +514,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       unbindRecall()
       unbindPoke()
       unbindProfiles()
+      unbindReaction()
     }
   }, [applyRecall, appendPoke, mergeAvatars])
 
@@ -615,6 +690,45 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [applyRecall, setToast])
 
+  /** 我贴过的表情表 key：`${selfId}:${scene}:${peer}:${messageId}` */
+  const myReactionKey = (selfId: string, scene: ChatScene, peer: string, messageId: string) => `${selfId}:${scene}:${peer}:${messageId}`
+
+  /** 当前 bot 是否已给该消息贴过指定表情 */
+  const hasReacted = useCallback((msg: ChatMessage, faceId: number) => {
+    const bot = currentBotRef.current
+    if (!bot) return false
+    return (myReactionsRef.current[myReactionKey(bot.selfId, msg.scene, msg.peer, msg.messageId)] || []).includes(faceId)
+  }, [])
+
+  /**
+   * 贴表情/取消贴（QQ 表情回应）：自己已贴过该表情时调 isSet=false 取消，否则贴。
+   * 成功后本地乐观聚合 + 更新我贴过的表情表，WS 回显按 pendingReactionRef 去重
+   */
+  const reactMessage = useCallback(async (msg: ChatMessage, faceId: number) => {
+    const bot = currentBotRef.current
+    if (!bot) return
+    const mineKey = myReactionKey(bot.selfId, msg.scene, msg.peer, msg.messageId)
+    const isSet = !(myReactionsRef.current[mineKey] || []).includes(faceId)
+    try {
+      await api.reactMessage({ selfId: bot.selfId, scene: msg.scene, peer: msg.peer, messageId: msg.messageId, faceId, isSet })
+      const dedupKey = `${mineKey}:${faceId}`
+      const queue = pendingReactionRef.current.get(dedupKey) || []
+      queue.push({ time: Date.now(), isSet })
+      pendingReactionRef.current.set(dedupKey, queue)
+      dispatchMessages({ type: 'reaction', key: fullKey(bot.selfId, msg.scene, msg.peer), messageId: msg.messageId, faceId, count: 1, isSet })
+      setMyReactions(prev => {
+        const list = prev[mineKey] || []
+        const next = isSet ? [...list, faceId] : list.filter(id => id !== faceId)
+        const out = { ...prev }
+        if (next.length > 0) out[mineKey] = next
+        else delete out[mineKey]
+        return out
+      })
+    } catch (err) {
+      setToast({ message: `${isSet ? '贴表情' : '取消贴表情'}失败: ${(err as Error).message}`, type: 'error' })
+    }
+  }, [setToast])
+
   // 文件直发（附件菜单「文件」/拖拽/粘贴的非图片文件）：按类型映射元素逐个发送，图片走附件菜单「图片」内联进输入框
   const handleFiles = useCallback(async (files: FileList | File[] | null) => {
     if (!files || files.length === 0) return
@@ -666,6 +780,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       sendMessage,
       resendMessage,
       recallMessage,
+      reactMessage,
+      hasReacted,
       appendLocalPoke,
       handleFiles
     }}

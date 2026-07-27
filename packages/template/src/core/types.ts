@@ -105,6 +105,12 @@ export interface ForwardMessageItem {
 /** 会话场景 */
 export type ChatScene = 'friend' | 'group'
 
+/** 消息表情回应（QQ 贴表情，faceId 为 QQ 小黄脸 id） */
+export interface ReactionItem {
+  faceId: number
+  count: number
+}
+
 /** 聊天消息 */
 export interface ChatMessage {
   messageId: string
@@ -120,6 +126,8 @@ export interface ChatMessage {
   /** 秒级时间戳 */
   time: number
   elements: MessageElement[]
+  /** 表情回应聚合（faceId -> 次数），随 reaction 推送增量更新 */
+  reactions?: ReactionItem[]
   /** 系统提示消息（戳一戳/撤回等小灰条），前端居中灰色渲染 */
   system?: boolean
   /** 前端本地状态：发送中/失败/已撤回 */
@@ -161,6 +169,20 @@ export type WsPush =
       action: string
       /** 后缀文案 */
       suffix: string
+    }
+  }
+  /** 表情回应（QQ 贴表情）：isSet=true 添加、false 取消，count 为本次次数（缺省按 1） */
+  | {
+    type: 'reaction', data: {
+      selfId: string
+      scene: ChatScene
+      peer: string
+      messageId: string
+      /** 操作者（贴表情的人） */
+      operatorId: string
+      faceId: number
+      count: number
+      isSet: boolean
     }
   }
   /**

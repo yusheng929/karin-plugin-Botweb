@@ -23,6 +23,12 @@ const WS_PATH = `${BASE}/ws`
 /** 已连接的面板客户端 */
 const clients = new Set<WebSocket>()
 
+/**
+ * 表情回应状态表（NapCat 取消事件无标志的翻转推断用）：
+ * `${selfId}:${peer}:${messageId}:${faceId}:${operatorId}` -> 当前是否已贴
+ */
+const reactionState = new Map<string, boolean>()
+
 /** 广播消息给所有在线客户端 */
 const broadcast = (payload: unknown) => {
   if (clients.size === 0) return
@@ -197,6 +203,41 @@ export const noticeHandlers = [
         suffix: e.content.suffix || ''
       }
     })
+    next()
+  }),
+
+  // -------------------- 表情回应（QQ 贴表情）推送 --------------------
+  // -------------------- 表情回应（QQ 贴表情）推送 --------------------
+  // 前端给原气泡下方渲染 faceId 对应的 QFace + 次数；db 同步聚合，刷新后保留
+  karin.accept('notice.groupMessageReaction', (e, next) => {
+    const { messageId, faceId, count, isSet } = e.content
+    const peer = String(e.contact.peer)
+    const operatorId = String(e.sender.userId)
+    // NapCat 的 group_msg_emoji_like 事件不带贴/取消标志（取消也发同构事件），karin 只能
+    // 硬编码 isSet=true。按 QQ 语义（同一用户对同一表情只能贴一次）翻转推断：同一操作者
+    // 对同一消息的同一表情再次「添加」实为取消。重启后状态丢失，首个事件按添加处理
+    const stateKey = `${e.selfId}:${peer}:${messageId}:${faceId}:${operatorId}`
+    const realIsSet = isSet ? reactionState.get(stateKey) !== true : false
+    reactionState.set(stateKey, realIsSet)
+    // 防止无限增长（上限 1 万条，淘汰最早写入的）
+    if (reactionState.size > 10_000) {
+      const oldest = reactionState.keys().next().value
+      if (oldest !== undefined) reactionState.delete(oldest)
+    }
+    broadcast({
+      type: 'reaction',
+      data: {
+        selfId: e.selfId,
+        scene: 'group',
+        peer,
+        messageId: String(messageId),
+        operatorId,
+        faceId,
+        count,
+        isSet: realIsSet
+      }
+    })
+    void messageDb.applyReaction(e.selfId, 'group', peer, String(messageId), faceId, count, realIsSet).catch(() => {})
     next()
   })
 ]

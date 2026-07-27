@@ -1,22 +1,24 @@
 import React from 'react'
-import { AtSign, Hand, UserMinus, Copy, Reply, Undo2, Download, ImageIcon, Braces, X } from 'lucide-react'
+import { AtSign, Hand, UserMinus, Copy, Reply, Undo2, Download, ImageIcon, Braces, X, SmilePlus } from 'lucide-react'
 import { useChat } from '../state/chat'
 import { useUi } from '../state/ui'
 import { pokeGroupMember, pokeFriend, kickGroupMember } from '../api'
-import { resolveMediaSrc, downloadFile, copyImageToClipboard, cn } from '../utils'
+import { resolveMediaSrc, downloadFile, copyImageToClipboard, isQQProtocol, cn } from '../utils'
 import { MessageElement } from '../../core/types'
 import { ContextMenu, ContextMenuItem } from './ContextMenu'
+import { ReactionPicker } from './ReactionPicker'
 
 export const Overlays: React.FC = () => {
   const {
     currentBot, botGroupRole, groupMembers, currentConversation,
-    recallMessage, refreshGroupMembers, appendLocalPoke
+    recallMessage, refreshGroupMembers, appendLocalPoke, reactMessage, hasReacted
   } = useChat()
   const {
     toast, confirmDialog, setConfirmDialog,
     alertDialog, setAlertDialog,
     contextMenu, setContextMenu,
     rawMessage, setRawMessage,
+    reactionPicker, setReactionPicker,
     setPendingMention, setReplyTo, setToast
   } = useUi()
 
@@ -187,6 +189,14 @@ export const Overlays: React.FC = () => {
         onClick: () => handleCopyImage(imageEl.file)
       })
     }
+    // 贴表情（QQ 表情回应）：仅 QQ 协议（NapCat/Lagrange 等 OneBot 实现），系统消息不可贴
+    if (isQQProtocol(currentBot.protocol) && !msg.system) {
+      items.push({
+        label: '贴表情',
+        icon: <SmilePlus className='w-4 h-4' />,
+        onClick: () => setReactionPicker({ x: contextMenu.x, y: contextMenu.y, msg })
+      })
+    }
     // 撤回：自己（bot）发的消息总是显示；他人消息仅当 bot 在该群为 owner/admin 时显示
     const isOwn = msg.senderId === currentBot.selfId
     const showRecall = !msg.recalled && !msg.system && !msg.status && (isOwn || (msg.scene === 'group' && canManageGroup))
@@ -201,7 +211,7 @@ export const Overlays: React.FC = () => {
     return items
   }
 
-  if (!toast && !confirmDialog && !alertDialog && !contextMenu && !rawMessage) return null
+  if (!toast && !confirmDialog && !alertDialog && !contextMenu && !rawMessage && !reactionPicker) return null
 
   return (
     <>
@@ -212,6 +222,24 @@ export const Overlays: React.FC = () => {
           y={contextMenu.y}
           items={buildMenuItems()}
           onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {/* 贴表情选择器：QFace 网格浮层，选中后调协议端接口并本地乐观聚合（已贴过该表情则提示不重复贴） */}
+      {reactionPicker && (
+        <ReactionPicker
+          x={reactionPicker.x}
+          y={reactionPicker.y}
+          onSelect={(faceId) => {
+            const msg = reactionPicker.msg
+            setReactionPicker(null)
+            if (hasReacted(msg, faceId)) {
+              setToast({ message: '已贴过该表情，点击消息下方的表情可取消', type: 'info' })
+              return
+            }
+            void reactMessage(msg, faceId)
+          }}
+          onClose={() => setReactionPicker(null)}
         />
       )}
 

@@ -1,6 +1,6 @@
 import karin, { SendMsgResults } from 'node-karin'
 import { BotService } from './bot'
-import { RecallMessageType, SendMessageType } from './types'
+import { ReactionMessageType, RecallMessageType, SendMessageType } from './types'
 import { toSendElements } from './dto'
 import { messageDb } from './db'
 import { SettingsService } from './settings'
@@ -48,6 +48,22 @@ export const MessageService = {
       return ok(null)
     } catch (err) {
       return fail(err instanceof Error ? err.message : '消息撤回失败')
+    }
+  },
+
+  /** 表情回应（QQ 贴表情，仅 NapCat/Lagrange 等 OneBot 协议端支持，其余抛错） */
+  async react (data: ReactionMessageType): Promise<ApiResult<null>> {
+    const bot = BotService.get(data.selfId)
+    if (!bot) return fail('Bot不存在')
+    const isSet = data.isSet !== false
+    try {
+      const contact = data.scene === 'group' ? karin.contactGroup(data.peer) : karin.contactFriend(data.peer)
+      await bot.setMsgReaction(contact, data.messageId, data.faceId, isSet)
+      // 面板主动贴表情不一定有 notice 回显，这里直接聚合 db（WS reaction 推送到达时前端按 pending 去重）
+      void messageDb.applyReaction(data.selfId, data.scene, data.peer, data.messageId, data.faceId, 1, isSet).catch(() => {})
+      return ok(null)
+    } catch (err) {
+      return fail(err instanceof Error ? err.message : '表情回应失败')
     }
   }
 }
