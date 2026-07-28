@@ -33,8 +33,12 @@ interface ChatContextType {
   currentKey: string | null
   currentConversation: Conversation | null
   openConversation: (key: string | null) => void
-  /** 当前会话的消息（启动时从后端 db 全量拉取 + 页面打开后累积的实时消息 + 自己发送的，只存内存） */
+  /** 当前会话的消息（打开会话时从后端 db 分页拉取 + 页面打开后累积的实时消息 + 自己发送的，只存内存） */
   messages: ChatMessage[]
+  /** 当前会话在后端 db 里是否还有更早的历史消息（驱动「加载更早」入口） */
+  historyHasMore: boolean
+  /** 拉取当前会话的更早一页历史消息（合并进 messageMap，游标自动推进） */
+  loadEarlierMessages: () => Promise<void>
   groupMembers: GroupMemberItem[]
   refreshGroupMembers: () => void
   /** 当前 bot 在当前群内的角色（非群会话为 null） */
@@ -50,6 +54,8 @@ interface ChatContextType {
   appendLocalPoke: (scene: ChatScene, peer: string, targetId: string) => void
   /** 贴表情/取消贴（QQ 表情回应）：自己已贴过该表情时触发取消，否则贴；成功后本地乐观聚合到消息 reactions */
   reactMessage: (msg: ChatMessage, faceId: number) => Promise<void>
+  /** 按 messageId 查指定会话的消息（引用块预览用；稳定回调，读 ref 不随消息流变化） */
+  getMessageById: (selfId: string, scene: ChatScene, peer: string, messageId: string) => ChatMessage | undefined
   /** 当前 bot 是否已给该消息贴过指定表情（驱动胶囊高亮与面板重复贴拦截） */
   hasReacted: (msg: ChatMessage, faceId: number) => boolean
   handleFiles: (files: FileList | File[] | null) => Promise<void>
@@ -198,10 +204,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [currentBotId, setCurrentBotId] = useState<string | null>(null)
   const [friends, setFriends] = useState<FriendItem[]>([])
   const [groups, setGroups] = useState<GroupItem[]>([])
-  /** 所有 bot 的消息，key 为 `${selfId}:${scene}:${peer}` */
+  /** 所有 bot 的消息，key 为 `${selfId}:${scene}:${peer}`（打开会话时分页拉取 + 实时累积） */
   const [messageMap, dispatchMessages] = useReducer(messageMapReducer, {})
   const [currentKey, setCurrentKey] = useState<string | null>(null)
   const [unreadByBot, dispatchUnread] = useReducer(unreadReducer, {})
+  /** 各会话的历史分页状态：loaded=首页已拉过，hasMore=后端还有更早，cursor=下一页游标（sqlite rowid） */
+  const [historyMap, setHistoryMap] = useState<Record<string, { loaded: boolean, hasMore: boolean, cursor: number | null }>>({})
   const [groupMembers, setGroupMembers] = useState<GroupMemberItem[]>([])
   /** 用户头像表：`${selfId}:${userId}` -> url（来源：profiles 推送增量 + avatars 接口补拉，均为后端协议端 getAvatarUrl） */
   const [avatarMap, setAvatarMap] = useState<Record<string, string>>({})
@@ -213,6 +221,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   currentBotRef.current = currentBot
   const currentKeyRef = useRef<string | null>(null)
   currentKeyRef.current = currentKey
+  // getMessageById / resendMessage 等稳定回调里读最新 messageMap，避免依赖它导致回调 identity 随消息流变化
+  const messageMapRef = useRef(messageMap)
+  messageMapRef.current = messageMap
+  // 历史分页回调里读最新 historyMap（游标推进），保持回调 identity 稳定
+  const historyMapRef = useRef(historyMap)
+  historyMapRef.current = historyMap
+  /** 正在拉取历史页的会话 key，防并发重复请求 */
+  const historyLoadingRef = useRef(new Set<string>())
   // 头像补拉 effect 里读最新 avatarMap，避免把它列为依赖造成循环
   const avatarMapRef = useRef(avatarMap)
   avatarMapRef.current = avatarMap
@@ -235,6 +251,26 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const bot = currentBotRef.current
     return bot ? avatarMap[`${bot.selfId}:${userId}`] : undefined
   }, [avatarMap])
+
+  /** 按 messageId 查指定会话的消息（稳定回调，供引用块预览等场景避免订阅整个 messages 数组） */
+  const getMessageById = useCallback((selfId: string, scene: ChatScene, peer: string, messageId: string): ChatMessage | undefined => {
+    return (messageMapRef.current[fullKey(selfId, scene, peer)] || []).find(m => m.messageId === messageId)
+  }, [])
+
+  /** 拉取指定会话的更早一页历史消息（游标自动推进，幂等防并发；首页 before=null 拉最新一页） */
+  const fetchHistoryPage = useCallback(async (selfId: string, scene: ChatScene, peer: string) => {
+    const key = fullKey(selfId, scene, peer)
+    if (historyLoadingRef.current.has(key)) return
+    historyLoadingRef.current.add(key)
+    try {
+      const cursor = historyMapRef.current[key]?.cursor ?? null
+      const page = await api.getMessages(selfId, scene, peer, cursor)
+      dispatchMessages({ type: 'merge', entries: { [key]: page.messages } })
+      setHistoryMap(prev => ({ ...prev, [key]: { loaded: true, hasMore: page.hasMore, cursor: page.cursor } }))
+    } finally {
+      historyLoadingRef.current.delete(key)
+    }
+  }, [])
 
   /** 解析用户显示名：bot 自己为「你」，其次好友备注/昵称、群名片/昵称，兜底 ID */
   const resolveName = useCallback((selfId: string, userId: string): string => {
@@ -269,19 +305,18 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
         dispatchUnread({ type: 'merge', entries: unreadEntries })
-        // 拉取各 bot 的本地存储消息（只存内存，关闭/刷新后重新拉取）；单个 bot 失败不影响其他
+        // 拉取各 bot 的会话摘要（每个会话的最后一条消息，做会话列表预览/排序）；
+        // 历史消息不进内存，打开会话后按需分页拉取；单个 bot 失败不影响其他
         for (const bot of list) {
-          api.getMessages(bot.selfId)
-            .then(msgs => {
+          api.getConversations(bot.selfId)
+            .then(summaries => {
               const entries: MessageMapState = {}
-              for (const msg of msgs) {
-                const key = fullKey(msg.selfId, msg.scene, msg.peer)
-                if (!entries[key]) entries[key] = []
-                entries[key].push(msg)
+              for (const s of summaries) {
+                entries[fullKey(bot.selfId, s.scene, s.peer)] = [s.lastMessage]
               }
               dispatchMessages({ type: 'merge', entries })
             })
-            .catch(err => setToast({ message: `拉取历史消息失败: ${err.message}`, type: 'error' }))
+            .catch(err => setToast({ message: `拉取会话摘要失败: ${err.message}`, type: 'error' }))
         }
       })
       .catch(err => setToast({ message: `获取 Bot 列表失败: ${err.message}`, type: 'error' }))
@@ -315,7 +350,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [unreadByBot])
 
-  // 打开会话：清零未读；群会话拉取成员列表（供 @ 菜单与成员侧栏使用）
+  // 打开会话：清零未读；首次打开拉取最新一页历史消息；群会话拉取成员列表（供 @ 菜单与成员侧栏使用）
   useEffect(() => {
     if (!currentKey || !currentBotId) {
       setGroupMembers([])
@@ -323,6 +358,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     dispatchUnread({ type: 'clear', selfId: currentBotId, key: currentKey })
     const [scene, peer] = currentKey.split(':') as [ChatScene, string]
+    // 首次打开拉历史首页（之后重开消息已在内存，实时消息由 WS 增量累积）
+    if (!historyMapRef.current[fullKey(currentBotId, scene, peer)]?.loaded) {
+      fetchHistoryPage(currentBotId, scene, peer)
+        .catch(err => setToast({ message: `拉取历史消息失败: ${err.message}`, type: 'error' }))
+    }
     if (scene === 'group') {
       api.getGroupMembers(currentBotId, peer)
         .then(setGroupMembers)
@@ -330,7 +370,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } else {
       setGroupMembers([])
     }
-  }, [currentKey, currentBotId])
+  }, [currentKey, currentBotId, fetchHistoryPage, setToast])
 
   const refreshGroupMembers = useCallback(() => {
     if (!currentKey || !currentBotId) return
@@ -587,6 +627,22 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [messageMap, currentBotId, currentKey]
   )
 
+  /** 当前会话在后端 db 里是否还有更早的历史消息（未拉过首页时按有更处理，驱动「加载更早」入口先拉首页） */
+  const historyHasMore = useMemo(() => {
+    if (!currentBotId || !currentKey) return false
+    const h = historyMap[fullKey(currentBotId, currentKey.split(':')[0] as ChatScene, currentKey.split(':')[1])]
+    return h ? h.hasMore : true
+  }, [historyMap, currentBotId, currentKey])
+
+  /** 拉取当前会话的更早一页历史消息（MessageList 上翻/「加载更早」触发） */
+  const loadEarlierMessages = useCallback(async () => {
+    const bot = currentBotRef.current
+    const key = currentKeyRef.current
+    if (!bot || !key) return
+    const [scene, peer] = key.split(':') as [ChatScene, string]
+    await fetchHistoryPage(bot.selfId, scene, peer)
+  }, [fetchHistoryPage])
+
   // 头像补拉：当前群会话的消息发送者与成员列表里缺头像的 ID，批量走后端 getAvatarUrl（结果带 db 缓存）。
   // 覆盖 db 拉取的历史消息发送者，以及无成员列表接口协议端的成员/发言人头像
   useEffect(() => {
@@ -665,18 +721,18 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [currentConversation, doSend, setToast])
 
   const resendMessage = useCallback(async (messageId: string) => {
-    const conv = currentConversation
+    const conv = currentConversationRef.current
     const bot = currentBotRef.current
     if (!conv || !bot) return
     const key = fullKey(bot.selfId, conv.scene, conv.peer)
-    const msg = (messageMap[key] || []).find(m => m.messageId === messageId)
+    const msg = (messageMapRef.current[key] || []).find(m => m.messageId === messageId)
     if (!msg) return
     try {
       await doSend(conv.scene, conv.peer, msg.elements, messageId)
     } catch (err) {
       setToast({ message: `发送失败: ${(err as Error).message}`, type: 'error' })
     }
-  }, [currentConversation, messageMap, doSend, setToast])
+  }, [doSend, setToast])
 
   const recallMessage = useCallback(async (msg: ChatMessage) => {
     const bot = currentBotRef.current
@@ -772,6 +828,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       currentConversation,
       openConversation,
       messages,
+      historyHasMore,
+      loadEarlierMessages,
       groupMembers,
       refreshGroupMembers,
       botGroupRole,
@@ -781,6 +839,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       resendMessage,
       recallMessage,
       reactMessage,
+      getMessageById,
       hasReacted,
       appendLocalPoke,
       handleFiles

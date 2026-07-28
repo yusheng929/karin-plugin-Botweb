@@ -1,7 +1,10 @@
-import React, { useEffect, useLayoutEffect, useRef } from 'react'
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useChat } from '../state/chat'
+import { useUi } from '../state/ui'
 import { toMillis } from '../utils'
 import { MessageItem } from './MessageItem'
+import { MessageViewContextType, MessageViewProvider } from './messageView'
+import { ChatScene, GroupMemberItem } from '../../core/types'
 
 /** 距底部多少像素内视为「贴底」，贴底时内容增高会自动跟随 */
 const STICK_THRESHOLD = 80
@@ -11,6 +14,12 @@ const GROUP_WINDOW = 300_000
 
 /** 相邻消息间隔超过该值时插入居中时间胶囊（QQ NT 风格） */
 const TIME_DIVIDER_GAP = 300_000
+
+/** 窗口化渲染：首屏与每次向上翻页渲染的消息条数（避免长记录一次性渲染几千条卡死页面） */
+const PAGE_SIZE = 100
+
+/** 滚动到距顶部多少像素内自动加载更早消息 */
+const LOAD_MORE_THRESHOLD = 120
 
 const isSameDay = (a: number, b: number) => new Date(a).toDateString() === new Date(b).toDateString()
 
@@ -32,28 +41,78 @@ const formatTimeDivider = (time: number) => {
 }
 
 export const MessageList: React.FC = () => {
-  const { messages, currentBot, currentKey } = useChat()
+  const {
+    messages, currentBot, currentKey, currentConversation, groupMembers,
+    resolveAvatar, resendMessage, reactMessage, hasReacted, getMessageById,
+    historyHasMore, loadEarlierMessages
+  } = useChat()
+  const { flashMessageId, flashMessage, setToast, setConfirmDialog, setContextMenu, setPendingInlineCmd } = useUi()
   const scrollRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
   /** 是否贴底（跟随滚动）：切换会话置 true，用户上翻后置 false */
   const stickRef = useRef(true)
+  /** 窗口化渲染：当前渲染尾部多少条消息（上翻分页增大） */
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  /** 向上翻页的滚动锚点（加载更早消息后保持视口不跳动）；非空时也作为「正在翻页」的防抖标记 */
+  const anchorRef = useRef<{ height: number, top: number } | null>(null)
+  /** 正在从后端拉取更早历史页（按钮 loading 态） */
+  const [loadingMore, setLoadingMore] = useState(false)
 
   const scrollToBottom = () => {
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
   }
 
+  /** 加载更早消息：内存窗口还有余量先扩窗；窗口已拉满且后端还有更早则拉取下一页历史再扩窗 */
+  const loadEarlier = async () => {
+    const el = scrollRef.current
+    if (!el || anchorRef.current) return
+    anchorRef.current = { height: el.scrollHeight, top: el.scrollTop }
+    if (visibleCount < messages.length) {
+      setVisibleCount(c => c + PAGE_SIZE)
+      return
+    }
+    if (!historyHasMore) {
+      anchorRef.current = null
+      return
+    }
+    setLoadingMore(true)
+    try {
+      await loadEarlierMessages()
+      setVisibleCount(c => c + PAGE_SIZE)
+    } catch (err) {
+      anchorRef.current = null
+      setToast({ message: `拉取历史消息失败: ${(err as Error).message}`, type: 'error' })
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
   const handleScroll = () => {
     const el = scrollRef.current
     if (!el) return
     stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_THRESHOLD
+    if (el.scrollTop < LOAD_MORE_THRESHOLD && (messages.length > visibleCount || historyHasMore)) {
+      void loadEarlier()
+    }
   }
 
-  // 切换会话：立即跳到底部（图片尚未加载、scrollHeight 不准也没关系，下面的 ResizeObserver 会兜底）
+  // 切换会话：回到首屏窗口并立即跳到底部（图片尚未加载、scrollHeight 不准也没关系，下面的 ResizeObserver 会兜底）
   useLayoutEffect(() => {
+    anchorRef.current = null
+    setVisibleCount(PAGE_SIZE)
     stickRef.current = true
     scrollToBottom()
   }, [currentKey])
+
+  // 向上翻页后恢复滚动锚点（内容在上方增高，视口保持原位置）
+  useLayoutEffect(() => {
+    const anchor = anchorRef.current
+    const el = scrollRef.current
+    if (!anchor || !el) return
+    anchorRef.current = null
+    el.scrollTop = el.scrollHeight - anchor.height + anchor.top
+  }, [visibleCount])
 
   // 新消息到达：贴底状态下跟随
   useEffect(() => {
@@ -71,6 +130,47 @@ export const MessageList: React.FC = () => {
     return () => observer.disconnect()
   }, [])
 
+  /** 群成员查找表：名片/角色徽章按 senderId O(1) 取（替代每条消息 groupMembers.find 的 O(n) 扫描） */
+  const memberMap = useMemo(() => {
+    const map = new Map<string, GroupMemberItem>()
+    for (const m of groupMembers) map.set(String(m.userId), m)
+    return map
+  }, [groupMembers])
+
+  const scene = currentKey?.split(':')[0] as ChatScene | undefined
+  const peer = currentKey?.split(':')[1]
+  const conversationAvatar = currentConversation?.avatar
+
+  /**
+   * 消息项供数 context：依赖全是稳定回调/原始值（conversationAvatar 是字符串、scene/peer 拆自 currentKey），
+   * 新消息到达不会改变 value identity，memo 化的 MessageItem 因此跳过无关重渲染
+   */
+  const viewContext = useMemo<MessageViewContextType>(() => ({
+    currentBot,
+    conversationAvatar,
+    getMember: (userId) => memberMap.get(String(userId)),
+    getAvatar: resolveAvatar,
+    getMessage: (messageId) => (currentBot && scene && peer)
+      ? getMessageById(currentBot.selfId, scene, peer, messageId)
+      : undefined,
+    resendMessage,
+    reactMessage,
+    hasReacted,
+    setToast,
+    setConfirmDialog,
+    setContextMenu,
+    setPendingInlineCmd,
+    flashMessage
+  }), [
+    currentBot, conversationAvatar, memberMap, resolveAvatar, scene, peer, getMessageById,
+    resendMessage, reactMessage, hasReacted,
+    setToast, setConfirmDialog, setContextMenu, setPendingInlineCmd, flashMessage
+  ])
+
+  /** 窗口化：只渲染尾部 visibleCount 条；分组/时间胶囊计算仍基于全量数组（首条可见消息需要与窗外前一条比较） */
+  const startIndex = Math.max(0, messages.length - visibleCount)
+  const visibleMessages = startIndex > 0 ? messages.slice(startIndex) : messages
+
   /** 相邻两条是否属于同一连续消息组（同发送者、时间接近、均非系统消息、未跨天） */
   const sameGroup = (a?: (typeof messages)[number], b?: (typeof messages)[number]) => {
     if (!a || !b) return false
@@ -82,38 +182,53 @@ export const MessageList: React.FC = () => {
   }
 
   return (
-    <div ref={scrollRef} onScroll={handleScroll} className='flex-1 overflow-y-auto px-5 py-4'>
-      <div ref={contentRef} className='flex flex-col'>
-        {messages.map((m, index) => {
-          const prevMsg = messages[index - 1]
-          const nextMsg = messages[index + 1]
-          // QQ NT：首条 / 跨天 / 间隔超 5 分钟时插入居中时间胶囊
-          const showTime = !prevMsg ||
-            !isSameDay(toMillis(prevMsg.time), toMillis(m.time)) ||
-            toMillis(m.time) - toMillis(prevMsg.time) >= TIME_DIVIDER_GAP
-          const isMe = !!currentBot && m.senderId === currentBot.selfId
-          const groupStart = showTime || !sameGroup(prevMsg, m)
-          const groupEnd = !sameGroup(m, nextMsg)
+    <MessageViewProvider value={viewContext}>
+      <div ref={scrollRef} onScroll={handleScroll} className='flex-1 overflow-y-auto px-5 py-4'>
+        <div ref={contentRef} className='flex flex-col'>
+          {(startIndex > 0 || historyHasMore) && (
+            <div className='flex justify-center my-2 select-none'>
+              <button
+                onClick={() => void loadEarlier()}
+                disabled={loadingMore}
+                className='px-3 py-1 text-xs text-qq-text-secondary hover:text-qq-blue transition-colors disabled:opacity-50 disabled:pointer-events-none'
+              >
+                {loadingMore ? '加载中…' : '加载更早的消息'}
+              </button>
+            </div>
+          )}
+          {visibleMessages.map((m, index) => {
+            const absIndex = startIndex + index
+            const prevMsg = messages[absIndex - 1]
+            const nextMsg = messages[absIndex + 1]
+            // QQ NT：首条 / 跨天 / 间隔超 5 分钟时插入居中时间胶囊
+            const showTime = !prevMsg ||
+              !isSameDay(toMillis(prevMsg.time), toMillis(m.time)) ||
+              toMillis(m.time) - toMillis(prevMsg.time) >= TIME_DIVIDER_GAP
+            const isMe = !!currentBot && m.senderId === currentBot.selfId
+            const groupStart = showTime || !sameGroup(prevMsg, m)
+            const groupEnd = !sameGroup(m, nextMsg)
 
-          return (
-            <React.Fragment key={m.messageId || index}>
-              {showTime && (
-                <div className='flex justify-center my-3 select-none'>
-                  <span className='time-pill'>
-                    {formatTimeDivider(m.time)}
-                  </span>
-                </div>
-              )}
-              <MessageItem
-                message={m}
-                isMe={isMe}
-                groupStart={groupStart}
-                groupEnd={groupEnd}
-              />
-            </React.Fragment>
-          )
-        })}
+            return (
+              <React.Fragment key={m.messageId || absIndex}>
+                {showTime && (
+                  <div className='flex justify-center my-3 select-none'>
+                    <span className='time-pill'>
+                      {formatTimeDivider(m.time)}
+                    </span>
+                  </div>
+                )}
+                <MessageItem
+                  message={m}
+                  isMe={isMe}
+                  groupStart={groupStart}
+                  groupEnd={groupEnd}
+                  flashing={flashMessageId === m.messageId}
+                />
+              </React.Fragment>
+            )
+          })}
+        </div>
       </div>
-    </div>
+    </MessageViewProvider>
   )
 }

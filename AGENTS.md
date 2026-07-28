@@ -95,7 +95,8 @@ pnpm exec tsc --noEmit -p packages/core      # core 类型检查（template 需�
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/bots` | Bot 列表 `BotInfo[]` |
-| GET | `/bots/:selfId/messages` | 该 bot 的全部本地存储消息 `ChatMessage[]`（sqlite messages 表，时间升序，含 `recalled` 标记；前端启动时全量拉取后只存内存） |
+| GET | `/bots/:selfId/conversations` | 会话摘要 `ConversationSummary[]`（每个有本地消息的会话的最后一条，前端启动时拉取做列表预览/排序） |
+| GET | `/bots/:selfId/messages?scene=&peer=&before=&limit=` | 指定会话的历史消息分页 `MessagePage`（`before` 传上一页 `cursor` 即 sqlite rowid，`limit` 默认 100 上限 500，时间升序 + `hasMore`；前端打开会话拉首页、上翻逐页拉更早） |
 | GET | `/bots/:selfId/friends` | 好友列表 `FriendItem[]`（含头像，失败降级空串；协议端返回空/报错时回退 db 资料缓存） |
 | GET | `/bots/:selfId/groups` | 群列表 `GroupItem[]`（空/报错回退 db 资料缓存） |
 | GET | `/bots/:selfId/groups/:groupId/members` | 群成员 `GroupMemberItem[]`（空/报错回退 db 成员缓存） |
@@ -110,7 +111,7 @@ pnpm exec tsc --noEmit -p packages/core      # core 类型检查（template 需�
 | POST | `/message/recall` | 撤回 `{ selfId, scene, peer, messageId }` |
 | POST | `/message/reaction` | 表情回应（贴表情）`{ selfId, scene, peer, messageId, faceId, isSet? }`，走 karin `bot.setMsgReaction`（仅 NapCat/Lagrange 等 OneBot 实现支持，其余协议端抛错） |
 
-消息持久化在**后端 sqlite messages 表**（`service/db.ts` 的 `messageDb`）：收消息（hooks.message）与自己发送（MessageService.send）时 `INSERT OR IGNORE` 入库；撤回（notice 回显与面板主动撤回）时 `recalled = 1`。**入库受设置门控**（`SettingsService.shouldStoreMessage`：全局开关 `messageStore` 关闭时全不存；开启时也仅存 `messageStoreBots` 里单独开启的 bot，默认空=都不存）。前端启动时按 bot 全量拉取（`GET /bots/:selfId/messages`）只存内存，刷新后重新拉取——不走协议端 `getHistoryMsg`（各协议端差异大），插件启用前的历史消息不可见；关闭存储只影响新消息，已入库的历史仍可拉取。
+消息持久化在**后端 sqlite messages 表**（`service/db.ts` 的 `messageDb`）：收消息（hooks.message）与自己发送（MessageService.send）时 `INSERT OR IGNORE` 入库；撤回（notice 回显与面板主动撤回）时 `recalled = 1`。**入库受设置门控**（`SettingsService.shouldStoreMessage`：全局开关 `messageStore` 关闭时全不存；开启时也仅存 `messageStoreBots` 里单独开启的 bot，默认空=都不存）。前端**分页拉取**：启动时按 bot 拉会话摘要（每会话最后一条）做列表预览，打开会话才拉最新一页（100 条），上翻按 rowid 游标逐页拉更早——不走协议端 `getHistoryMsg`（各协议端差异大），插件启用前的历史消息不可见；关闭存储只影响新消息，已入库的历史仍可拉取。
 
 ## WS 推送协议（`/botweb/ws`，服务端只推不收）
 
@@ -155,7 +156,8 @@ pnpm exec tsc --noEmit -p packages/core      # core 类型检查（template 需�
 - **输入框是 contenteditable 富文本**（`.rich-input`，非受控组件）：QQ 表情（`<img data-face-id>`）与待发送图片（`<img data-image-id class="rich-image">`，dataURL 存 `pendingImagesRef` 不塞 DOM 属性）内联混排，发送时 `parseEditor()` 遍历 DOM 按出现顺序解析为 text/face/image 元素序列再拆 @；粘贴只取纯文本、粘贴图片内联进编辑器、粘贴其他文件走 handleFiles 直发；空态由 `syncEmpty()` 手动同步（驱动发送按钮禁用）；placeholder 靠 CSS `.rich-input:empty::before`。选择表情/插入 @ 后必须 `editor.focus()`，否则回车会触发聚焦的按钮而不是发送。
 - **附件按钮是输入区工具栏的独立图标按钮**（InputArea 工具栏：表情/图片/文件三个线性图标按钮）：「图片」打开 `accept='image/*'` 选择器，选中的图片内联进输入框与文本混排；「文件」打开 `*/*` 选择器，选中后走 `handleFiles` **直接发送**（video/audio/image/file 按类型映射元素，不再有 stagedImages 待发送区）。**拖拽/粘贴的图片也内联进输入框**（拖拽经 ui.tsx 的 `pendingImages` 由 InputArea 消费，与 pendingMention 同模式），其他文件直发。注意文件选择器 `onChange` 必须**先 `Array.from` 拷贝再清空 `input.value`**——`input.files` 的 FileList 是活动的，清空后已捕获的 FileList 会变空。
 - **消息 sqlite 持久化**（`service/db.ts` 的 `messageDb`，同库 `messages` 表）：主键 `(self_id, scene, peer, message_id)`，`time` 存**毫秒**（入库时 >1e12 判定归一），`elements` 存 JSON。写入用 `INSERT OR IGNORE`（自己发的消息会被 send 接口与协议端回显各写一次，后到者忽略）；入库前把 `data:` 开头的 base64 媒体降级为占位文本（防撑爆 db）。**写入受设置门控**（全局 `messageStore` 开关 + `messageStoreBots` 按 bot 单独开关，见上条设置约束）。`hooks.message` 里写库与 ProfileService 一样是 **fire-and-forget，禁止 await**。撤回走 `markRecalled` 置 `recalled = 1`，前端刷新后仍保持撤回红框态。表情回应用 `reactions` 列（TEXT，JSON `ReactionItem[]`，老库经 `PRAGMA table_info` + `ALTER TABLE` 迁移）+ `applyReaction` 增量聚合。
-- 前端消息**只存内存**（messageMap），启动时按 bot 调 `GET /bots/:selfId/messages` 全量拉取；reducer 的 `merge` 按 key 合并 + messageId 去重 + 时间排序，不覆盖拉取完成前到达的 WS 实时消息。localStorage 只剩未读数（`botweb:unread:{selfId}`）与登录态。
+- 前端消息**只存内存**（messageMap）：启动时按 bot 拉**会话摘要**（`GET /bots/:selfId/conversations`，每会话最后一条）做列表预览/排序；打开会话拉最新一页、上翻经 `loadEarlierMessages` 按 rowid 游标逐页拉更早（分页状态在 `chat.tsx` 的 `historyMap`：loaded/hasMore/cursor，`historyLoadingRef` 防并发）；reducer 的 `merge` 按 key 合并 + messageId 去重 + 时间排序，历史页与 WS 实时消息可任意顺序到达。localStorage 只剩未读数（`botweb:unread:{selfId}`）与登录态。
+- **消息列表性能**（长记录防卡死）：`MessageList` 窗口化渲染——首屏只渲染尾部 100 条，滚动近顶部或点「加载更早的消息」按页（100 条）向前扩窗，内存窗口拉满后自动经 `loadEarlierMessages` 从后端 db 拉下一页历史（rowid 游标），翻页用 scrollHeight 锚点保持视口不跳动；`MessageItem` 为 `React.memo`，数据**不直接订阅 useChat/useUi**（两个 context value 随消息流/toast/右键菜单高频变化，订阅会导致整列重渲染含 markdown 重解析），改由 `components/messageView.ts` 的 `MessageViewContext` 供数（MessageList 侧 useMemo 固定 value：群成员 Map O(1) 查找、`getMessage`/`getAvatar` 等稳定回调读 ref）；`MessageMarkdown` 的 ReactMarkdown 已 memo + 插件数组常量化，同内容不重复解析。给消息项加数据时走 MessageViewContext，不要在里面直接 useChat/useUi。
 - tsdown 的 core 构建要求 template 已构建（`dist/index.js` + `index.d.ts` 存在），否则类型检查和打包都会失败。
 - ESLint 目前跑不起来（`eslint.config.js` 依赖未安装的 `globals` 包），为既有问题。
 

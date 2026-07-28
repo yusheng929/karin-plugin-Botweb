@@ -1,8 +1,7 @@
 import React, { useState } from 'react'
 import { AlertCircle, Loader2, FileIcon, Download, MessagesSquare, X } from 'lucide-react'
 import { ChatMessage, ButtonItem, ForwardMessageItem, MessageElement, ReactionItem } from '../../core/types'
-import { useChat } from '../state/chat'
-import { useUi } from '../state/ui'
+import { useMessageView } from './messageView'
 import { getMessageSummary, toMillis, formatSize, resolveMediaSrc, downloadFile, qqFaceGif, qqFacePng, isQQProtocol, cn } from '../utils'
 import { useCachedSrc } from '../faceCache'
 import { getForward } from '../api'
@@ -62,7 +61,7 @@ const MessageReactions: React.FC<{ reactions: ReactionItem[], myFaceIds?: Readon
 
 /** 消息图片：防盗链 no-referrer、限宽限高、加载失败占位、点击遮罩看原图（支持右键菜单与下载按钮） */
 const MessageImage: React.FC<{ file: string, isPureMedia: boolean }> = ({ file, isPureMedia }) => {
-  const { setContextMenu } = useUi()
+  const { setContextMenu } = useMessageView()
   const [error, setError] = useState(false)
   const [zoom, setZoom] = useState(false)
   const src = resolveMediaSrc(file)
@@ -205,8 +204,7 @@ const MessageButtons: React.FC<{ rows: ButtonItem[][] }> = ({ rows }) => (
  * GET /bots/:selfId/forward 拉取内容，毛玻璃浮层逐条展示
  */
 const MessageForward: React.FC<{ resId: string }> = ({ resId }) => {
-  const { currentBot } = useChat()
-  const { setToast } = useUi()
+  const { currentBot, setToast } = useMessageView()
   const [open, setOpen] = useState(false)
   const [loading, setLoading] = useState(false)
   const [items, setItems] = useState<ForwardMessageItem[] | null>(null)
@@ -298,16 +296,22 @@ interface MessageItemProps {
   groupStart: boolean
   /** 连续消息组的最后一条（控制底部留白） */
   groupEnd: boolean
+  /** 回复跳转后的短暂高亮中 */
+  flashing: boolean
 }
 
 /**
  * QQ NT 式消息行：
  * 双侧头像（组首显示、顶部对齐），群聊他人昵称在气泡外上方（灰色小字），
- * 时间不入气泡（悬停 tooltip + 列表居中时间戳），发送状态图标位于气泡侧边
+ * 时间不入气泡（悬停 tooltip + 列表居中时间戳），发送状态图标位于气泡侧边。
+ * React.memo + MessageViewContext 供数：新消息到达/toast/右键菜单等无关状态变化不会触发重渲染
  */
-export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupStart, groupEnd }) => {
-  const { resendMessage, groupMembers, messages, resolveAvatar, currentBot, currentConversation, reactMessage, hasReacted } = useChat()
-  const { setConfirmDialog, setContextMenu, setToast, flashMessageId, flashMessage } = useUi()
+const MessageItemInner: React.FC<MessageItemProps> = ({ message, isMe, groupStart, groupEnd, flashing }) => {
+  const {
+    currentBot, conversationAvatar, getMember, getAvatar, getMessage,
+    resendMessage, reactMessage, hasReacted,
+    setConfirmDialog, setContextMenu, setToast, flashMessage
+  } = useMessageView()
   const isGroup = message.scene === 'group'
 
   // 系统消息（戳一戳/撤回提示等）：居中小灰条，无气泡无头像
@@ -324,7 +328,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupSt
     )
   }
 
-  const senderMember = isGroup ? groupMembers.find((m) => String(m.userId) === String(message.senderId)) : undefined
+  const senderMember = isGroup ? getMember(message.senderId) : undefined
   const senderDisplayName = senderMember ? (senderMember.card || senderMember.nick || message.senderName) : message.senderName
 
   const roleBadge = (() => {
@@ -356,7 +360,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupSt
   }
 
   const renderReply = (part: Extract<MessageElement, { type: 'reply' }>, idx: number) => {
-    const target = messages.find(m => m.messageId === part.messageId)
+    const target = getMessage(part.messageId)
     return (
       <div
         key={idx}
@@ -454,8 +458,8 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupSt
 
   /** 头像地址：自己用当前 bot 头像；私聊对方用会话头像；群成员走后端 getAvatarUrl 缓存 */
   const avatarUrl = isMe
-    ? (currentBot?.avatar || resolveAvatar(message.senderId))
-    : (!isGroup ? (currentConversation?.avatar || resolveAvatar(message.senderId)) : resolveAvatar(message.senderId))
+    ? (currentBot?.avatar || getAvatar(message.senderId))
+    : (!isGroup ? (conversationAvatar || getAvatar(message.senderId)) : getAvatar(message.senderId))
 
   /** 气泡侧边的发送状态（QQ 风：失败红色感叹号点击重发，发送中转圈） */
   const statusIcon = isMe && message.status === 'sending'
@@ -488,7 +492,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupSt
         'flex items-start gap-2.5 -mx-2 px-2 rounded-lg hover:bg-qq-hover transition-colors',
         isMe ? 'flex-row-reverse' : 'flex-row',
         groupEnd ? 'mb-3' : 'mb-1',
-        flashMessageId === message.messageId && 'highlight-msg'
+        flashing && 'highlight-msg'
       )}
     >
       {/* 头像列（QQ NT：双侧均显示，组首出现、顶部对齐；其余占位保持缩进） */}
@@ -554,3 +558,10 @@ export const MessageItem: React.FC<MessageItemProps> = ({ message, isMe, groupSt
     </div>
   )
 }
+
+/**
+ * memo 化：props 全为原始值/稳定消息对象引用（reducer 对无关消息保持原引用），
+ * 新消息追加、toast、右键菜单等无关状态变化时整列消息跳过重渲染；
+ * 需要的数据经 MessageViewContext 注入（其 value 不随消息流变化）
+ */
+export const MessageItem = React.memo(MessageItemInner)

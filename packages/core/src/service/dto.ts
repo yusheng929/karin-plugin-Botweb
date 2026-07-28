@@ -121,6 +121,23 @@ export interface ChatMessage {
   recalled?: boolean
 }
 
+/** 会话摘要（前端启动时按 bot 拉取：每个有本地消息的会话的最后一条，与 template/src/core/types.ts 保持一致） */
+export interface ConversationSummary {
+  scene: ChatScene
+  peer: string
+  lastMessage: ChatMessage
+}
+
+/** 分页拉取历史消息的响应（与 template/src/core/types.ts 保持一致） */
+export interface MessagePage {
+  /** 本页消息（时间升序） */
+  messages: ChatMessage[]
+  /** 是否还有更早的消息 */
+  hasMore: boolean
+  /** 下一页游标（本页最旧一条的 sqlite rowid），无更多时为 null */
+  cursor: number | null
+}
+
 /** Bot 适配器 -> BotInfo */
 export const toBotInfo = (bot: AdapterType): BotInfo => ({
   selfId: bot.selfId,

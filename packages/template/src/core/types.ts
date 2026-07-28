@@ -135,6 +135,23 @@ export interface ChatMessage {
   recalled?: boolean
 }
 
+/** 会话摘要（后端按 bot 聚合：每个有本地消息的会话的最后一条） */
+export interface ConversationSummary {
+  scene: ChatScene
+  peer: string
+  lastMessage: ChatMessage
+}
+
+/** 分页拉取历史消息的响应 */
+export interface MessagePage {
+  /** 本页消息（时间升序） */
+  messages: ChatMessage[]
+  /** 是否还有更早的消息 */
+  hasMore: boolean
+  /** 下一页游标（本页最旧一条的 sqlite rowid），无更多时为 null */
+  cursor: number | null
+}
+
 /** 后端统一响应包装 */
 export interface ApiResult<T = unknown> {
   code: number

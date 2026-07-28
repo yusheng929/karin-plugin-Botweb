@@ -2,8 +2,7 @@ import React, { useMemo } from 'react'
 import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
-import { useChat } from '../state/chat'
-import { useUi } from '../state/ui'
+import { useMessageView } from './messageView'
 import { resolveMediaSrc, cn } from '../utils'
 import { parseSpecialLink } from '../specialLink'
 import type { ChatMessage } from '../../core/types'
@@ -63,6 +62,13 @@ const mdComponents: Components = {
 /** 特殊协议链接（mqqapi:// 等）放行原始 href 交给点击拦截，其余走默认消毒（防 javascript: 等） */
 const mdUrlTransform = (url: string) => parseSpecialLink(url) ? url : defaultUrlTransform(url)
 
+/** 插件数组提升为常量（配合 memo：props 引用稳定时 ReactMarkdown 跳过重复解析） */
+const REMARK_PLUGINS = [remarkGfm]
+const REHYPE_PLUGINS = [rehypeRaw]
+
+/** memo 化的 ReactMarkdown：消息项因无关状态（头像到达/高亮等）重渲染时，同内容 markdown 不重复走解析管线 */
+const MemoReactMarkdown = React.memo(ReactMarkdown)
+
 /**
  * markdown 消息渲染：react-markdown + GFM 为基础，按 bot 协议族预处理方言语法。
  * isMe 时附加 md-me 类（自己蓝气泡白字，链接等着色跟随气泡）。
@@ -70,8 +76,7 @@ const mdUrlTransform = (url: string) => parseSpecialLink(url) ? url : defaultUrl
  * 转发浮层等无上下文场景特殊协议链接不响应点击
  */
 export const MessageMarkdown: React.FC<{ content: string, isMe?: boolean, message?: ChatMessage }> = ({ content, isMe, message }) => {
-  const { currentBot } = useChat()
-  const { setPendingInlineCmd } = useUi()
+  const { currentBot, setPendingInlineCmd } = useMessageView()
   const family = mdFamily(currentBot?.protocol)
   const source = useMemo(() => preprocess(content, family), [content, family])
 
@@ -103,14 +108,14 @@ export const MessageMarkdown: React.FC<{ content: string, isMe?: boolean, messag
 
   return (
     <div className={cn('md-body', isMe && 'md-me')}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeRaw]}
+      <MemoReactMarkdown
+        remarkPlugins={REMARK_PLUGINS}
+        rehypePlugins={REHYPE_PLUGINS}
         components={components}
         urlTransform={mdUrlTransform}
       >
         {source}
-      </ReactMarkdown>
+      </MemoReactMarkdown>
     </div>
   )
 }

@@ -1,14 +1,14 @@
 /**
  * 插件私有 sqlite 存储（@karinjs/sqlite3：karin 同款 napi 预编译 sqlite3，支持 node>=18）。
  * db 文件位于 karin 运行时插件目录 @karinjs/karin-plugin-botweb/data/botweb.db（不在仓库/插件包内）。
- * 三张表：profiles（好友/群/头像资料缓存）、members（群成员缓存）、messages（聊天消息持久化，前端启动时全量拉取）。
+ * 三张表：profiles（好友/群/头像资料缓存）、members（群成员缓存）、messages（聊天消息持久化，前端按会话分页拉取）。
  */
 import path from 'node:path'
 import fs from 'node:fs'
 import sqlite3 from '@karinjs/sqlite3'
 import { logger } from 'node-karin'
 import { dir } from '@/dir'
-import type { ChatMessage, MessageElement, ReactionItem } from './dto'
+import type { ChatMessage, ConversationSummary, MessageElement, MessagePage, ReactionItem } from './dto'
 
 /** 资料行（profiles 表，kind 区分数据语义） */
 export interface ProfileRow {
@@ -248,6 +248,21 @@ const applyReactionDelta = (list: ReactionItem[], faceId: number, count: number,
   return next
 }
 
+/** 消息行 -> ChatMessage（库存毫秒；ChatMessage 契约为秒级，前端统一经 toMillis() 归一，两种单位都兼容） */
+const toChatMessage = (row: MessageRow): ChatMessage => ({
+  messageId: row.message_id,
+  seq: row.seq,
+  selfId: row.self_id,
+  scene: row.scene,
+  peer: row.peer,
+  senderId: row.sender_id,
+  senderName: row.sender_name,
+  time: row.time,
+  elements: JSON.parse(row.elements) as MessageElement[],
+  reactions: row.reactions ? JSON.parse(row.reactions) as ReactionItem[] : undefined,
+  recalled: row.recalled === 1
+})
+
 export const messageDb = {
   /**
    * 写入一条消息（INSERT OR IGNORE 幂等：自己发的消息会被 send 接口与协议端回显各写一次，
@@ -295,26 +310,41 @@ export const messageDb = {
     )
   },
 
-  /** 按 bot 取全部消息（时间升序），供前端启动时全量拉取 */
-  async listByBot (selfId: string): Promise<ChatMessage[]> {
+  /**
+   * 按 bot 聚合会话摘要：每个有本地消息的会话取最后一条（rowid 最大者，插入顺序即到达顺序）。
+   * 前端启动时拉取，用于会话列表预览/排序，历史消息进会话后按需分页拉取
+   */
+  async listConversations (selfId: string): Promise<ConversationSummary[]> {
     const db = await init()
     const rows = await db.all<MessageRow>(
-      'SELECT * FROM messages WHERE self_id = ? ORDER BY time ASC',
+      `SELECT m.* FROM messages m
+       JOIN (
+         SELECT scene, peer, MAX(rowid) AS rid FROM messages WHERE self_id = ? GROUP BY scene, peer
+       ) t ON m.rowid = t.rid`,
       [selfId]
     )
-    return rows.map(row => ({
-      messageId: row.message_id,
-      seq: row.seq,
-      selfId: row.self_id,
-      scene: row.scene,
-      peer: row.peer,
-      senderId: row.sender_id,
-      senderName: row.sender_name,
-      // 库存毫秒；ChatMessage 契约为秒级，前端统一经 toMillis() 归一，两种单位都兼容
-      time: row.time,
-      elements: JSON.parse(row.elements) as MessageElement[],
-      reactions: row.reactions ? JSON.parse(row.reactions) as ReactionItem[] : undefined,
-      recalled: row.recalled === 1
-    }))
+    return rows.map(row => ({ scene: row.scene, peer: row.peer, lastMessage: toChatMessage(row) }))
+  },
+
+  /**
+   * 按会话分页拉取历史消息（游标为 sqlite rowid，单调递增与到达顺序一致，避免 time 同毫秒撞车漏消息）：
+   * before 传上一页的 cursor（最旧一条的 rowid），返回时间升序的一页 + 是否还有更早 + 新游标
+   */
+  async listPage (selfId: string, scene: ChatMessage['scene'], peer: string, before: number | null, limit: number): Promise<MessagePage> {
+    const db = await init()
+    // 多取 1 条判断是否还有更早
+    const rows = await db.all<MessageRow & { rid: number }>(
+      `SELECT rowid AS rid, * FROM messages
+       WHERE self_id = ? AND scene = ? AND peer = ? AND (? IS NULL OR rowid < ?)
+       ORDER BY rowid DESC LIMIT ?`,
+      [selfId, scene, peer, before, before, limit + 1]
+    )
+    const hasMore = rows.length > limit
+    const page = rows.slice(0, limit)
+    return {
+      messages: page.map(toChatMessage).reverse(),
+      hasMore,
+      cursor: page.length > 0 ? page[page.length - 1].rid : null
+    }
   }
 }

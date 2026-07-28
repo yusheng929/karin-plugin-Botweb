@@ -8,6 +8,8 @@ import {
   MessageElement,
   ChatScene,
   ChatMessage,
+  ConversationSummary,
+  MessagePage,
   UserAvatarItem,
   BotWebSettings,
   WsPush
@@ -43,9 +45,16 @@ export const getFriends = (selfId: string) =>
 export const getGroups = (selfId: string) =>
   request<GroupItem[]>(`/api/bots/${encodeURIComponent(selfId)}/groups`)
 
-/** 拉取该 bot 的全部本地存储消息（后端 sqlite 持久化，时间升序；前端只存内存，刷新后重新拉取） */
-export const getMessages = (selfId: string) =>
-  request<ChatMessage[]>(`/api/bots/${encodeURIComponent(selfId)}/messages`)
+/** 拉取该 bot 的会话摘要（每个有本地消息的会话的最后一条，用于会话列表预览/排序；历史消息进会话后分页拉取） */
+export const getConversations = (selfId: string) =>
+  request<ConversationSummary[]>(`/api/bots/${encodeURIComponent(selfId)}/conversations`)
+
+/** 分页拉取指定会话的历史消息（before 传上一页 cursor 取更早一页，时间升序） */
+export const getMessages = (selfId: string, scene: ChatScene, peer: string, before: number | null, limit = 100) => {
+  const params = new URLSearchParams({ scene, peer, limit: String(limit) })
+  if (before !== null) params.set('before', String(before))
+  return request<MessagePage>(`/api/bots/${encodeURIComponent(selfId)}/messages?${params}`)
+}
 
 export const getGroupMembers = (selfId: string, groupId: string) =>
   request<GroupMemberItem[]>(`/api/bots/${encodeURIComponent(selfId)}/groups/${encodeURIComponent(groupId)}/members`)
