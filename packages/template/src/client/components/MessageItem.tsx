@@ -1,10 +1,11 @@
 import React, { useState } from 'react'
-import { AlertCircle, Loader2, FileIcon, Download, MessagesSquare, X } from 'lucide-react'
+import { AlertCircle, FileIcon, Download, MessagesSquare, X } from 'lucide-react'
 import { ChatMessage, ButtonItem, ForwardMessageItem, MessageElement, ReactionItem } from '../../core/types'
 import { useMessageView } from './messageView'
 import { getMessageSummary, toMillis, formatSize, resolveMediaSrc, downloadFile, qqFaceGif, qqFacePng, isQQProtocol, cn } from '../utils'
 import { useCachedSrc } from '../faceCache'
 import { getForward } from '../api'
+import { Spinner } from '@heroui/react'
 import { Avatar } from './Avatar'
 import { MessageMarkdown } from './MessageMarkdown'
 
@@ -263,8 +264,8 @@ const MessageForward: React.FC<{ resId: string }> = ({ resId }) => {
             </div>
             <div className='flex-1 overflow-y-auto px-4 py-3'>
               {loading && (
-                <div className='flex items-center justify-center py-10 text-qq-text-secondary'>
-                  <Loader2 className='w-5 h-5 animate-spin' />
+                <div className='flex items-center justify-center py-10'>
+                  <Spinner />
                 </div>
               )}
               {items?.map((item, i) => (
@@ -331,8 +332,18 @@ const MessageItemInner: React.FC<MessageItemProps> = ({ message, isMe, groupStar
   const senderMember = isGroup ? getMember(message.senderId) : undefined
   const senderDisplayName = senderMember ? (senderMember.card || senderMember.nick || message.senderName) : message.senderName
 
-  const roleBadge = (() => {
+  /**
+   * 头衔/角色徽章（互斥，QQ 语义）：有自定义头衔时替换角色文字——
+   * 群主仍黄色、管理员仍蓝色、普通群员紫色；无头衔时群主/管理员显示角色文字
+   */
+  const badge = (() => {
     if (!isGroup || !senderMember) return null
+    if (senderMember.title) {
+      const cls = senderMember.role === 'owner'
+        ? 'role-badge-owner'
+        : senderMember.role === 'admin' ? 'role-badge-admin' : 'role-badge-title'
+      return <span className={cn('role-badge shrink-0 max-w-[120px] truncate', cls)}>{senderMember.title}</span>
+    }
     if (senderMember.role === 'owner') {
       return <span className='role-badge role-badge-owner shrink-0'>群主</span>
     }
@@ -463,7 +474,7 @@ const MessageItemInner: React.FC<MessageItemProps> = ({ message, isMe, groupStar
 
   /** 气泡侧边的发送状态（QQ 风：失败红色感叹号点击重发，发送中转圈） */
   const statusIcon = isMe && message.status === 'sending'
-    ? <Loader2 className='w-3.5 h-3.5 mb-1 text-qq-text-secondary animate-spin shrink-0' />
+    ? <Spinner size='sm' color='current' className='mb-1 shrink-0' />
     : isMe && message.status === 'failed'
       ? (
         <button
@@ -508,13 +519,13 @@ const MessageItemInner: React.FC<MessageItemProps> = ({ message, isMe, groupStar
       </div>
 
       <div className={cn('flex flex-col max-w-[62%] xl:max-w-[560px] min-w-0', isMe ? 'items-end' : 'items-start')}>
-        {/* 群聊他人：昵称 + 身份徽章在气泡外上方（灰色小字，QQ NT 式） */}
+        {/* 群聊他人：昵称 + 头衔/身份徽章在气泡外上方（灰色小字，QQ NT 式） */}
         {isGroup && !isMe && groupStart && (
           <div className='flex items-center gap-1.5 mb-1 px-0.5 max-w-full'>
             <span className='text-xs text-qq-text-secondary truncate'>
               {senderDisplayName}
             </span>
-            {roleBadge}
+            {badge}
           </div>
         )}
 

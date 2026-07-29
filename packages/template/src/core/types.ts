@@ -34,6 +34,8 @@ export interface GroupMemberItem {
   nick?: string
   card?: string
   role: 'owner' | 'admin' | 'member' | 'unknown'
+  /** 群内专属头衔（含自定义头衔，与 core/src/service/dto.ts 保持一致） */
+  title?: string
 }
 
 /** 用户头像增量项（profiles 推送的 users 字段，头像统一由后端协议端 getAvatarUrl 提供） */
@@ -148,8 +150,8 @@ export interface MessagePage {
   messages: ChatMessage[]
   /** 是否还有更早的消息 */
   hasMore: boolean
-  /** 下一页游标（本页最旧一条的 sqlite rowid），无更多时为 null */
-  cursor: number | null
+  /** 下一页游标：协议端历史页为 messageId，本地 db 页为 sqlite rowid 字符串；无更多时为 null */
+  cursor: string | null
 }
 
 /** 后端统一响应包装 */

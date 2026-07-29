@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useChat } from '../state/chat'
 import { useUi } from '../state/ui'
 import { cn } from '../utils'
+import { Button, EmptyState } from '@heroui/react'
 import { MessageList } from './MessageList'
 import { InputArea } from './InputArea'
 import { GroupPanel } from './GroupPanel'
@@ -43,12 +44,10 @@ export const ChatWindow: React.FC = () => {
   if (!currentBot) {
     return (
       <div className='flex-1 flex flex-col items-center justify-center p-8 text-center bg-qq-chat-bg'>
-        <div className='w-20 h-20 rounded-full bg-qq-blue/10 flex items-center justify-center mb-6'>
-          <Bot className='w-10 h-10 text-qq-blue' />
-        </div>
-        <p className='max-w-xs text-[13px] text-qq-text-secondary leading-relaxed'>
-          未检测到已连接的 Bot。请先在 Karin 中登录 Bot 账号。
-        </p>
+        <EmptyState className='flex flex-col items-center justify-center gap-3 text-qq-text-secondary'>
+          <Bot className='w-14 h-14 opacity-50' />
+          <p className='text-[13px]'>未检测到已连接的 Bot。请先在 Karin 中登录 Bot 账号。</p>
+        </EmptyState>
       </div>
     )
   }
@@ -56,8 +55,10 @@ export const ChatWindow: React.FC = () => {
   if (!currentConversation) {
     return (
       <div className='flex-1 flex flex-col items-center justify-center bg-qq-chat-bg select-none'>
-        <MessageCircle className='w-14 h-14 text-qq-text-secondary/25 mb-4' strokeWidth={1.2} />
-        <span className='text-[13px] text-qq-text-secondary'>选择一个会话开始聊天</span>
+        <EmptyState className='flex flex-col items-center justify-center gap-3 text-qq-text-secondary'>
+          <MessageCircle className='w-14 h-14 opacity-50' />
+          <p className='text-[13px]'>选择一个会话开始聊天</p>
+        </EmptyState>
       </div>
     )
   }
@@ -102,16 +103,18 @@ export const ChatWindow: React.FC = () => {
           )}
         </div>
         {isGroup && (
-          <button
-            onClick={() => setGroupPanelOpen(!groupPanelOpen)}
+          <Button
+            isIconOnly
+            variant='ghost'
+            aria-label='群资料面板'
+            onPress={() => setGroupPanelOpen(!groupPanelOpen)}
             className={cn(
-              'p-1.5 rounded-lg transition-colors shrink-0',
+              'p-1.5 rounded-lg shrink-0',
               groupPanelOpen ? 'text-qq-blue' : 'text-qq-text-secondary hover:bg-qq-hover'
             )}
-            title='群资料面板'
           >
             <Users className='w-5 h-5' />
-          </button>
+          </Button>
         )}
       </header>
 

@@ -1,7 +1,9 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { ChevronDown } from 'lucide-react'
 import { useChat } from '../state/chat'
 import { useUi } from '../state/ui'
 import { toMillis } from '../utils'
+import { Button, Spinner } from '@heroui/react'
 import { MessageItem } from './MessageItem'
 import { MessageViewContextType, MessageViewProvider } from './messageView'
 import { ChatScene, GroupMemberItem } from '../../core/types'
@@ -57,6 +59,10 @@ export const MessageList: React.FC = () => {
   const anchorRef = useRef<{ height: number, top: number } | null>(null)
   /** 正在从后端拉取更早历史页（按钮 loading 态） */
   const [loadingMore, setLoadingMore] = useState(false)
+  /** 离开底部期间到达的新消息数（QQ 式「↓ N」浮标，贴底/点浮标时清零） */
+  const [pendingNew, setPendingNew] = useState(0)
+  /** 上一条尾部消息的 messageId：只有尾部变化（实时新消息）才累计浮标，历史页向前合并不影响 */
+  const lastMsgIdRef = useRef<string | null>(null)
 
   const scrollToBottom = () => {
     const el = scrollRef.current
@@ -92,6 +98,8 @@ export const MessageList: React.FC = () => {
     const el = scrollRef.current
     if (!el) return
     stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_THRESHOLD
+    // 回到贴底状态：浮标计数清零
+    if (stickRef.current && pendingNew > 0) setPendingNew(0)
     if (el.scrollTop < LOAD_MORE_THRESHOLD && (messages.length > visibleCount || historyHasMore)) {
       void loadEarlier()
     }
@@ -101,6 +109,7 @@ export const MessageList: React.FC = () => {
   useLayoutEffect(() => {
     anchorRef.current = null
     setVisibleCount(PAGE_SIZE)
+    setPendingNew(0)
     stickRef.current = true
     scrollToBottom()
   }, [currentKey])
@@ -114,9 +123,19 @@ export const MessageList: React.FC = () => {
     el.scrollTop = el.scrollHeight - anchor.height + anchor.top
   }, [visibleCount])
 
-  // 新消息到达：贴底状态下跟随
+  // 新消息到达：贴底状态下跟随；离开底部时累计「↓ N」浮标（自己发送的消息例外——QQ 语义，发送即回底部）
   useEffect(() => {
-    if (stickRef.current) scrollToBottom()
+    const last = messages[messages.length - 1]
+    const lastId = last?.messageId ?? null
+    const isOwnLast = !!last && !!currentBot && last.senderId === currentBot.selfId
+    if (stickRef.current || isOwnLast) {
+      stickRef.current = true
+      scrollToBottom()
+    } else if (lastId && lastMsgIdRef.current && lastId !== lastMsgIdRef.current) {
+      const prevIdx = messages.findIndex(m => m.messageId === lastMsgIdRef.current)
+      setPendingNew(c => c + (prevIdx === -1 ? 1 : messages.length - prevIdx - 1))
+    }
+    lastMsgIdRef.current = lastId
   }, [messages])
 
   // 图片等异步内容加载导致列表增高时，贴底状态下继续跟随（解决切换会话后图片把视图顶离底部的问题）
@@ -183,51 +202,75 @@ export const MessageList: React.FC = () => {
 
   return (
     <MessageViewProvider value={viewContext}>
-      <div ref={scrollRef} onScroll={handleScroll} className='flex-1 overflow-y-auto px-5 py-4'>
-        <div ref={contentRef} className='flex flex-col'>
-          {(startIndex > 0 || historyHasMore) && (
-            <div className='flex justify-center my-2 select-none'>
-              <button
-                onClick={() => void loadEarlier()}
-                disabled={loadingMore}
-                className='px-3 py-1 text-xs text-qq-text-secondary hover:text-qq-blue transition-colors disabled:opacity-50 disabled:pointer-events-none'
-              >
-                {loadingMore ? '加载中…' : '加载更早的消息'}
-              </button>
-            </div>
-          )}
-          {visibleMessages.map((m, index) => {
-            const absIndex = startIndex + index
-            const prevMsg = messages[absIndex - 1]
-            const nextMsg = messages[absIndex + 1]
-            // QQ NT：首条 / 跨天 / 间隔超 5 分钟时插入居中时间胶囊
-            const showTime = !prevMsg ||
-              !isSameDay(toMillis(prevMsg.time), toMillis(m.time)) ||
-              toMillis(m.time) - toMillis(prevMsg.time) >= TIME_DIVIDER_GAP
-            const isMe = !!currentBot && m.senderId === currentBot.selfId
-            const groupStart = showTime || !sameGroup(prevMsg, m)
-            const groupEnd = !sameGroup(m, nextMsg)
+      <div className='flex-1 min-h-0 relative flex flex-col'>
+        <div ref={scrollRef} onScroll={handleScroll} className='flex-1 overflow-y-auto px-5 py-4'>
+          <div ref={contentRef} className='flex flex-col'>
+            {(startIndex > 0 || historyHasMore) && (
+              <div className='flex justify-center my-2 select-none'>
+                <Button
+                  variant='secondary'
+                  size='sm'
+                  isPending={loadingMore}
+                  onPress={() => void loadEarlier()}
+                >
+                  {({ isPending }) => (
+                    <>
+                      {isPending && <Spinner color='current' size='sm' />}
+                      {isPending ? '加载中…' : '加载更早的消息'}
+                    </>
+                  )}
+                </Button>
+              </div>
+            )}
+            {visibleMessages.map((m, index) => {
+              const absIndex = startIndex + index
+              const prevMsg = messages[absIndex - 1]
+              const nextMsg = messages[absIndex + 1]
+              // QQ NT：首条 / 跨天 / 间隔超 5 分钟时插入居中时间胶囊
+              const showTime = !prevMsg ||
+                !isSameDay(toMillis(prevMsg.time), toMillis(m.time)) ||
+                toMillis(m.time) - toMillis(prevMsg.time) >= TIME_DIVIDER_GAP
+              const isMe = !!currentBot && m.senderId === currentBot.selfId
+              const groupStart = showTime || !sameGroup(prevMsg, m)
+              const groupEnd = !sameGroup(m, nextMsg)
 
-            return (
-              <React.Fragment key={m.messageId || absIndex}>
-                {showTime && (
-                  <div className='flex justify-center my-3 select-none'>
-                    <span className='time-pill'>
-                      {formatTimeDivider(m.time)}
-                    </span>
-                  </div>
-                )}
-                <MessageItem
-                  message={m}
-                  isMe={isMe}
-                  groupStart={groupStart}
-                  groupEnd={groupEnd}
-                  flashing={flashMessageId === m.messageId}
-                />
-              </React.Fragment>
-            )
-          })}
+              return (
+                <React.Fragment key={m.messageId || absIndex}>
+                  {showTime && (
+                    <div className='flex justify-center my-3 select-none'>
+                      <span className='time-pill'>
+                        {formatTimeDivider(m.time)}
+                      </span>
+                    </div>
+                  )}
+                  <MessageItem
+                    message={m}
+                    isMe={isMe}
+                    groupStart={groupStart}
+                    groupEnd={groupEnd}
+                    flashing={flashMessageId === m.messageId}
+                  />
+                </React.Fragment>
+              )
+            })}
+          </div>
         </div>
+
+        {/* 「↓ N」新消息浮标（QQ 式：离开底部期间收到新消息不自动跟随，点击回底部并清零） */}
+        {pendingNew > 0 && (
+          <button
+            onClick={() => {
+              stickRef.current = true
+              setPendingNew(0)
+              scrollToBottom()
+            }}
+            className='absolute bottom-3 right-4 z-20 flex items-center gap-1 pl-2.5 pr-2 py-1 rounded-full bg-qq-bubble-them text-qq-blue text-xs shadow-md hover:shadow-lg transition-shadow select-none'
+            title='回到底部查看新消息'
+          >
+            <ChevronDown className='w-3.5 h-3.5' />
+            {pendingNew > 99 ? '99+' : pendingNew}
+          </button>
+        )}
       </div>
     </MessageViewProvider>
   )

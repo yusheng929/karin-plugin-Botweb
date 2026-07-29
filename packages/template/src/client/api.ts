@@ -49,10 +49,17 @@ export const getGroups = (selfId: string) =>
 export const getConversations = (selfId: string) =>
   request<ConversationSummary[]>(`/api/bots/${encodeURIComponent(selfId)}/conversations`)
 
-/** 分页拉取指定会话的历史消息（before 传上一页 cursor 取更早一页，时间升序） */
-export const getMessages = (selfId: string, scene: ChatScene, peer: string, before: number | null, limit = 100) => {
+/** 分页拉取协议端历史消息（懒加载主数据源，后端叠加本地防撤回标记；before 传上一页 cursor 即最旧一条的 messageId） */
+export const getHistory = (selfId: string, scene: ChatScene, peer: string, before: string | null, limit = 100) => {
   const params = new URLSearchParams({ scene, peer, limit: String(limit) })
-  if (before !== null) params.set('before', String(before))
+  if (before !== null) params.set('before', before)
+  return request<MessagePage>(`/api/bots/${encodeURIComponent(selfId)}/history?${params}`)
+}
+
+/** 分页拉取指定会话的本地 db 历史消息（协议端历史不可用时的降级兜底源，before 传上一页 cursor 即 sqlite rowid 字符串，时间升序） */
+export const getMessages = (selfId: string, scene: ChatScene, peer: string, before: string | null, limit = 100) => {
+  const params = new URLSearchParams({ scene, peer, limit: String(limit) })
+  if (before !== null) params.set('before', before)
   return request<MessagePage>(`/api/bots/${encodeURIComponent(selfId)}/messages?${params}`)
 }
 

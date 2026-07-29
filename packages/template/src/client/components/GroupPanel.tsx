@@ -1,6 +1,8 @@
 import React from 'react'
 import { useChat } from '../state/chat'
 import { useUi } from '../state/ui'
+import { cn } from '../utils'
+import { GroupMemberItem } from '../../core/types'
 import { Avatar } from './Avatar'
 
 /** 群资料面板（QQ NT 最右栏 docked）：群公告占位 + 群成员列表 */
@@ -27,9 +29,16 @@ export const GroupPanel: React.FC = () => {
     })
   }
 
-  const roleBadge = (role: string) => {
-    if (role === 'owner') return <span className='role-badge role-badge-owner shrink-0'>群主</span>
-    if (role === 'admin') return <span className='role-badge role-badge-admin shrink-0'>管理员</span>
+  const roleBadge = (member: GroupMemberItem) => {
+    // 头衔/角色互斥：有自定义头衔时替换角色文字，颜色跟随角色（群主黄/管理员蓝/群员紫）
+    if (member.title) {
+      const cls = member.role === 'owner'
+        ? 'role-badge-owner'
+        : member.role === 'admin' ? 'role-badge-admin' : 'role-badge-title'
+      return <span className={cn('role-badge shrink-0 max-w-[80px] truncate', cls)}>{member.title}</span>
+    }
+    if (member.role === 'owner') return <span className='role-badge role-badge-owner shrink-0'>群主</span>
+    if (member.role === 'admin') return <span className='role-badge role-badge-admin shrink-0'>管理员</span>
     return null
   }
 
@@ -70,7 +79,7 @@ export const GroupPanel: React.FC = () => {
               <div className='flex-1 min-w-0 text-[13px] truncate'>
                 {member.card || member.nick || member.userId}
               </div>
-              {roleBadge(member.role)}
+              {roleBadge(member)}
             </div>
           ))}
           {members.length === 0 && (

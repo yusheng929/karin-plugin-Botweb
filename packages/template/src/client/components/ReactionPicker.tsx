@@ -41,7 +41,7 @@ interface ReactionPickerProps {
   onClose: () => void
 }
 
-/** 贴表情选择器：QFace 网格浮层（坐标定位贴边收拢，点击外部 / Esc / 滚动关闭），与右键菜单同模式 */
+/** 贴表情选择器：QFace 网格浮层（坐标定位贴边收拢，点击外部 / Esc / 面板外滚动关闭），与右键菜单同模式 */
 export const ReactionPicker: React.FC<ReactionPickerProps> = ({ x, y, onSelect, onClose }) => {
   const panelRef = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ left: x, top: y })
@@ -74,13 +74,18 @@ export const ReactionPicker: React.FC<ReactionPickerProps> = ({ x, y, onSelect, 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
+    // 面板外滚动才关闭：scroll 捕获阶段 target 是被滚动的元素，面板内部（表情网格）滚动不触发关闭
+    const onScroll = (e: Event) => {
+      if (e.target instanceof Node && panelRef.current?.contains(e.target)) return
+      onClose()
+    }
     window.addEventListener('click', onClose)
     window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('scroll', onClose, true)
+    window.addEventListener('scroll', onScroll, true)
     return () => {
       window.removeEventListener('click', onClose)
       window.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('scroll', onClose, true)
+      window.removeEventListener('scroll', onScroll, true)
     }
   }, [onClose])
 

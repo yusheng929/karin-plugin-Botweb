@@ -3,10 +3,11 @@ import { AtSign, Hand, UserMinus, Copy, Reply, Undo2, Download, ImageIcon, Brace
 import { useChat } from '../state/chat'
 import { useUi } from '../state/ui'
 import { pokeGroupMember, pokeFriend, kickGroupMember } from '../api'
-import { resolveMediaSrc, downloadFile, copyImageToClipboard, isQQProtocol, cn } from '../utils'
+import { resolveMediaSrc, downloadFile, copyImageToClipboard, copyTextToClipboard, isQQProtocol } from '../utils'
 import { MessageElement } from '../../core/types'
 import { ContextMenu, ContextMenuItem } from './ContextMenu'
 import { ReactionPicker } from './ReactionPicker'
+import { Button, Modal } from '@heroui/react'
 
 export const Overlays: React.FC = () => {
   const {
@@ -14,7 +15,7 @@ export const Overlays: React.FC = () => {
     recallMessage, refreshGroupMembers, appendLocalPoke, reactMessage, hasReacted
   } = useChat()
   const {
-    toast, confirmDialog, setConfirmDialog,
+    confirmDialog, setConfirmDialog,
     alertDialog, setAlertDialog,
     contextMenu, setContextMenu,
     rawMessage, setRawMessage,
@@ -166,7 +167,7 @@ export const Overlays: React.FC = () => {
             }
             return
           }
-          navigator.clipboard.writeText(text)
+          copyTextToClipboard(text)
             .then(() => setToast({ message: '已复制', type: 'success' }))
             .catch(() => setToast({ message: '复制失败', type: 'error' }))
         }
@@ -211,7 +212,7 @@ export const Overlays: React.FC = () => {
     return items
   }
 
-  if (!toast && !confirmDialog && !alertDialog && !contextMenu && !rawMessage && !reactionPicker) return null
+  if (!confirmDialog && !alertDialog && !contextMenu && !rawMessage && !reactionPicker) return null
 
   return (
     <>
@@ -259,7 +260,7 @@ export const Overlays: React.FC = () => {
               <div className='flex items-center gap-1'>
                 <button
                   onClick={() => {
-                    navigator.clipboard.writeText(JSON.stringify(rawMessage, null, 2))
+                    copyTextToClipboard(JSON.stringify(rawMessage, null, 2))
                       .then(() => setToast({ message: '已复制', type: 'success' }))
                       .catch(() => setToast({ message: '复制失败', type: 'error' }))
                   }}
@@ -284,66 +285,42 @@ export const Overlays: React.FC = () => {
         </div>
       )}
 
-      {/* Toast（Mac QQ 风格底部居中毛玻璃小胶囊） */}
-      {toast && (
-        <div className='fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] animate-in slide-in-from-bottom-3 fade-in duration-200'>
-          <div className='glass text-qq-text px-4 py-2 rounded-full shadow-xl flex items-center gap-2.5'>
-            <div className={cn('w-2 h-2 rounded-full shrink-0',
-              toast.type === 'error' ? 'bg-qq-badge' : 'bg-qq-blue')}
-            />
-            <span className='text-[13px]'>{toast.message}</span>
-          </div>
-        </div>
-      )}
+      {/* Toast 已由 HeroUI Toast.Provider（main.tsx）接管，此处只留对话框 */}
 
-      {/* Confirm Dialog（macOS 告警框：标题粗体居中 + 主色确认/灰色取消按钮） */}
-      {confirmDialog && (
-        <div className='fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/30 animate-in fade-in duration-150'>
-          <div className='w-full max-w-[270px] glass rounded-xl shadow-2xl animate-in zoom-in-95 duration-150 overflow-hidden'>
-            <div className='px-5 pt-5 pb-4 text-center'>
-              <h3 className='text-[15px] font-semibold mb-1.5'>{confirmDialog.title}</h3>
-              <p className='text-xs text-qq-text-secondary leading-relaxed'>{confirmDialog.message}</p>
-            </div>
-            <div className='flex gap-2.5 px-5 pb-5'>
-              <button
-                onClick={() => setConfirmDialog(null)}
-                className='flex-1 py-2 rounded-lg text-[13px] text-qq-text bg-qq-hover hover:bg-qq-active transition-colors'
-              >
-                {confirmDialog.cancelText || '取消'}
-              </button>
-              <button
-                onClick={() => {
-                  confirmDialog.onConfirm()
-                  setConfirmDialog(null)
-                }}
-                className='flex-1 py-2 rounded-lg text-[13px] font-medium text-white bg-qq-blue hover:bg-qq-blue-hover transition-colors'
-              >
-                {confirmDialog.confirmText || '确定'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Confirm Dialog（HeroUI Modal：确认按钮先执行 onConfirm，点任意按钮或遮罩自动关闭） */}
+      <Modal.Backdrop isOpen={!!confirmDialog} onOpenChange={(open) => { if (!open) setConfirmDialog(null) }}>
+        <Modal.Container>
+          <Modal.Dialog className='sm:max-w-[360px]'>
+            <Modal.Header>
+              <Modal.Heading>{confirmDialog?.title}</Modal.Heading>
+            </Modal.Header>
+            <Modal.Body>
+              {confirmDialog?.message}
+            </Modal.Body>
+            <Modal.Footer>
+              <Button slot='close' variant='secondary'>{confirmDialog?.cancelText || '取消'}</Button>
+              <Button slot='close' onPress={() => confirmDialog?.onConfirm()}>{confirmDialog?.confirmText || '确定'}</Button>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
 
-      {/* Alert Dialog（macOS 告警框） */}
-      {alertDialog && (
-        <div className='fixed inset-0 z-[111] flex items-center justify-center p-4 bg-black/30 animate-in fade-in duration-150'>
-          <div className='w-full max-w-[270px] glass rounded-xl shadow-2xl animate-in zoom-in-95 duration-150 overflow-hidden'>
-            <div className='px-5 pt-5 pb-4 text-center'>
-              <h3 className='text-[15px] font-semibold mb-1.5'>{alertDialog.title}</h3>
-              <p className='text-xs text-qq-text-secondary leading-relaxed'>{alertDialog.message}</p>
-            </div>
-            <div className='px-5 pb-5'>
-              <button
-                onClick={() => setAlertDialog(null)}
-                className='w-full py-2 rounded-lg text-[13px] font-medium text-white bg-qq-blue hover:bg-qq-blue-hover transition-colors'
-              >
-                确定
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Alert Dialog（HeroUI Modal：单按钮「确定」，点击即关闭） */}
+      <Modal.Backdrop isOpen={!!alertDialog} onOpenChange={(open) => { if (!open) setAlertDialog(null) }}>
+        <Modal.Container>
+          <Modal.Dialog className='sm:max-w-[360px]'>
+            <Modal.Header>
+              <Modal.Heading>{alertDialog?.title}</Modal.Heading>
+            </Modal.Header>
+            <Modal.Body>
+              {alertDialog?.message}
+            </Modal.Body>
+            <Modal.Footer>
+              <Button slot='close'>确定</Button>
+            </Modal.Footer>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
     </>
   )
 }

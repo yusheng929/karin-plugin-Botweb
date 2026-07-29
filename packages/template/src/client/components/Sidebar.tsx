@@ -1,21 +1,18 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
-  Bot,
-  Search,
   ChevronDown,
-  Users,
   Database,
   MessageSquareText,
   Plus,
   Check
 } from 'lucide-react'
-import { motion, AnimatePresence } from 'framer-motion'
 import { useChat, Conversation } from '../state/chat'
 import { useUi } from '../state/ui'
 import { getMessageSummary, toMillis, cn } from '../utils'
 import { getSettings, saveSettings } from '../api'
 import type { BotWebSettings, ProfileCacheMode } from '../../core/types'
 import { Avatar } from './Avatar'
+import { Button, Chip, Dropdown, EmptyState, Label, Radio, RadioGroup, SearchField, Switch } from '@heroui/react'
 
 /** 会话列表时间：今天显示 HH:MM，昨天显示「昨天」，否则显示 M月d日 */
 const formatListTime = (time?: number) => {
@@ -31,17 +28,15 @@ const formatListTime = (time?: number) => {
   return `${d.getMonth() + 1}月${d.getDate()}日`
 }
 
-/** 顶部机器人资料卡：头像（右下角在线状态点）+ 昵称 + 协议/账号签名，点击弹出账号切换列表 */
+/** 顶部机器人资料卡（HeroUI Dropdown）：头像（右下角在线状态点）+ 昵称 + 协议/账号签名，点击弹出账号切换列表 */
 const ProfileCard: React.FC = () => {
   const { bots, currentBot, selectBot, botUnread } = useChat()
-  const [open, setOpen] = useState(false)
 
   return (
-    <div className='relative shrink-0'>
-      <button
-        onClick={() => setOpen(v => !v)}
-        className='w-full flex items-center gap-2.5 px-3 pt-3 pb-2 hover:bg-qq-hover transition-colors text-left'
-        title='切换账号'
+    <Dropdown>
+      <Dropdown.Trigger
+        className='w-full flex items-center gap-2.5 px-3 pt-3 pb-2 hover:bg-qq-hover transition-colors text-left shrink-0'
+        aria-label='切换账号'
       >
         <span className='relative shrink-0'>
           <Avatar url={currentBot?.avatar} name={currentBot?.name || '?'} className='w-10 h-10 text-sm' />
@@ -54,74 +49,61 @@ const ProfileCard: React.FC = () => {
             {currentBot ? `${currentBot.protocol} · ${currentBot.selfId}` : '暂无在线 Bot'}
           </span>
         </span>
-      </button>
-
-      {/* 遮罩：点击空白处关闭弹层 */}
-      {open && <div className='fixed inset-0 z-40' onClick={() => setOpen(false)} />}
-
-      {/* 账号切换弹层 */}
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -6, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -6, scale: 0.98 }}
-            transition={{ duration: 0.15 }}
-            className='absolute left-2 right-2 top-full mt-1 z-50 glass rounded-xl shadow-2xl py-1 overflow-hidden'
-          >
-            {bots.length === 0 && (
-              <div className='px-4 py-6 text-center text-[13px] text-qq-text-secondary'>暂无在线 Bot</div>
-            )}
-            {bots.map((b) => {
-              const isCurrent = b.selfId === currentBot?.selfId
-              const unread = !isCurrent ? (botUnread[b.selfId] || 0) : 0
-              return (
-                <button
-                  key={b.selfId}
-                  onClick={() => {
-                    if (!isCurrent) selectBot(b.selfId)
-                    setOpen(false)
-                  }}
-                  className='w-[calc(100%-0.5rem)] mx-1 flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-qq-hover transition-colors'
-                >
-                  <Avatar url={b.avatar} name={b.name} className='w-8 h-8 text-sm' />
-                  <span className='flex-1 min-w-0 text-left'>
-                    <span className='block text-[13px] truncate'>{b.name}</span>
-                    <span className='block text-xs text-qq-text-secondary truncate'>{b.selfId}</span>
-                  </span>
-                  {unread > 0 && (
-                    <span className='unread-pill shrink-0'>{unread > 99 ? '99+' : unread}</span>
-                  )}
-                  {isCurrent && <Check className='w-4 h-4 text-qq-blue shrink-0' />}
-                </button>
-              )
-            })}
-          </motion.div>
+      </Dropdown.Trigger>
+      <Dropdown.Popover placement='bottom start' className='min-w-[240px]'>
+        {bots.length === 0 && (
+          <div className='px-4 py-6 text-center text-[13px] text-qq-text-secondary'>暂无在线 Bot</div>
         )}
-      </AnimatePresence>
-    </div>
+        <Dropdown.Menu
+          onAction={(key) => {
+            if (key !== currentBot?.selfId) selectBot(String(key))
+          }}
+        >
+          {bots.map((b) => {
+            const isCurrent = b.selfId === currentBot?.selfId
+            const unread = !isCurrent ? (botUnread[b.selfId] || 0) : 0
+            return (
+              <Dropdown.Item key={b.selfId} id={b.selfId} textValue={b.name}>
+                <Avatar url={b.avatar} name={b.name} className='w-8 h-8 text-sm' />
+                <span className='flex-1 min-w-0 text-left'>
+                  <span className='block text-[13px] truncate'>{b.name}</span>
+                  <span className='block text-xs text-qq-text-secondary truncate'>{b.selfId}</span>
+                </span>
+                {unread > 0 && (
+                  <Chip className='shrink-0' color='danger' variant='primary' size='sm'>
+                    {unread > 99 ? '99+' : unread}
+                  </Chip>
+                )}
+                {isCurrent && <Check className='w-4 h-4 text-qq-blue shrink-0' />}
+              </Dropdown.Item>
+            )
+          })}
+        </Dropdown.Menu>
+      </Dropdown.Popover>
+    </Dropdown>
   )
 }
 
-/** 搜索行：圆角搜索框 + 方形「+」刷新按钮（QQ NT 第二栏头部） */
+/** 搜索行：HeroUI 搜索框（胶囊样式见 index.css 的 sidebar-search 适配）+ 方形「+」刷新按钮（QQ NT 第二栏头部） */
 const SearchRow: React.FC<{ value: string, onChange: (v: string) => void }> = ({ value, onChange }) => (
   <div className='flex items-center gap-2 px-3 pt-1.5 pb-2 shrink-0'>
-    <div className='relative flex-1'>
-      <Search className='absolute left-2.5 top-1/2 -translate-y-1/2 w-[15px] h-[15px] text-qq-text-secondary pointer-events-none' />
-      <input
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        placeholder='搜索'
-        className='w-full h-[30px] pl-8 pr-3 rounded-lg bg-qq-input text-[13px] outline-none placeholder:text-qq-text-secondary focus:ring-2 focus:ring-qq-blue/40 transition-shadow'
-      />
-    </div>
-    <button
-      title='刷新数据'
-      onClick={() => window.location.reload()}
-      className='w-[30px] h-[30px] rounded-lg bg-qq-input flex items-center justify-center text-qq-text-secondary hover:bg-qq-hover hover:text-qq-text transition-colors shrink-0'
+    <SearchField className='flex-1 min-w-0 sidebar-search' aria-label='搜索' value={value} onChange={onChange}>
+      <SearchField.Group>
+        <SearchField.SearchIcon />
+        <SearchField.Input placeholder='搜索' />
+        <SearchField.ClearButton />
+      </SearchField.Group>
+    </SearchField>
+    <Button
+      isIconOnly
+      variant='ghost'
+      size='sm'
+      aria-label='刷新数据'
+      onPress={() => window.location.reload()}
+      className='w-[30px] min-w-0 h-[30px] p-0 rounded-lg bg-qq-input text-qq-text-secondary hover:bg-qq-hover hover:text-qq-text shrink-0'
     >
       <Plus className='w-4 h-4' />
-    </button>
+    </Button>
   </div>
 )
 
@@ -146,12 +128,11 @@ const ChatList: React.FC = () => {
       <SearchRow value={search} onChange={setSearch} />
 
       {/* 会话列表 */}
-      <div className='flex-1 overflow-y-auto px-2 pb-2'>
+      <div className='flex-1 overflow-y-auto px-3 pb-2 space-y-0.5'>
         {filtered.length === 0 && (
-          <div className='flex flex-col items-center justify-center h-40 text-qq-text-secondary select-none'>
-            <Bot className='w-8 h-8 mb-2 opacity-40' />
-            <p className='text-[13px]'>{currentBot ? (search ? '无匹配会话' : '暂无联系人') : '未连接 Bot'}</p>
-          </div>
+          <EmptyState className='h-40 flex items-center justify-center text-[13px] text-qq-text-secondary'>
+            {currentBot ? (search ? '无匹配会话' : '暂无联系人') : '未连接 Bot'}
+          </EmptyState>
         )}
         {filtered.map((conv: Conversation) => {
           const isActive = currentKey === conv.key
@@ -180,9 +161,9 @@ const ChatList: React.FC = () => {
                     {getMessageSummary(conv.lastMsg?.elements)}
                   </p>
                   {conv.unreadCount > 0 && (
-                    <span className='unread-pill shrink-0'>
+                    <Chip className='shrink-0' color='danger' variant='primary' size='sm'>
                       {conv.unreadCount > 99 ? '99+' : conv.unreadCount}
-                    </span>
+                    </Chip>
                   )}
                 </div>
               </div>
@@ -218,12 +199,11 @@ const ContactList: React.FC = () => {
   return (
     <>
       <SearchRow value={search} onChange={setSearch} />
-      <div className='flex-1 overflow-y-auto px-2 pb-2'>
+      <div className='flex-1 overflow-y-auto px-3 pb-2 space-y-0.5'>
         {contacts.length === 0 && (
-          <div className='flex flex-col items-center justify-center h-40 text-qq-text-secondary select-none'>
-            <Users className='w-8 h-8 mb-2 opacity-40' />
-            <p className='text-[13px]'>{search ? '无匹配联系人' : '暂无联系人'}</p>
-          </div>
+          <EmptyState className='h-40 flex items-center justify-center text-[13px] text-qq-text-secondary'>
+            {search ? '无匹配联系人' : '暂无联系人'}
+          </EmptyState>
         )}
         {(['friend', 'group'] as const).map((scene) => {
           const list = contacts.filter(c => c.scene === scene)
@@ -262,21 +242,6 @@ const ContactList: React.FC = () => {
     </>
   )
 }
-
-/** 设置项开关（macOS 风滑块：蓝底白头） */
-const Switch: React.FC<{ checked: boolean, disabled?: boolean, onChange: (v: boolean) => void }> = ({ checked, disabled, onChange }) => (
-  <button
-    disabled={disabled}
-    onClick={() => onChange(!checked)}
-    className={cn(
-      'w-[38px] h-[22px] rounded-full relative transition-colors shrink-0',
-      checked ? 'bg-qq-blue' : 'bg-qq-text-secondary/30',
-      disabled && 'opacity-40 cursor-not-allowed'
-    )}
-  >
-    <span className={cn('absolute top-[2px] w-[18px] h-[18px] rounded-full bg-white shadow transition-all', checked ? 'left-[18px]' : 'left-[2px]')} />
-  </button>
-)
 
 const PROFILE_CACHE_OPTIONS: { value: ProfileCacheMode, label: string, desc: string }[] = [
   { value: 'non-qq', label: '仅统计非 QQ 协议 Bot', desc: '默认。QQ 协议自带好友/群列表接口，无需本地统计' },
@@ -328,30 +293,30 @@ const SettingsView: React.FC = () => {
               <Database className='w-3.5 h-3.5' />
               联系人/群组统计
             </div>
-            <div className='mx-3 rounded-xl bg-qq-input overflow-hidden divide-y divide-qq-divider'>
-              {PROFILE_CACHE_OPTIONS.map(opt => {
-                const active = settings.profileCacheMode === opt.value
-                return (
-                  <button
-                    key={opt.value}
-                    onClick={() => update({ profileCacheMode: opt.value })}
-                    className='w-full flex items-center gap-3 px-3.5 py-2.5 hover:bg-qq-hover transition-colors text-left'
-                  >
-                    <span className={cn(
-                      'w-4 h-4 rounded-full border flex items-center justify-center shrink-0 transition-colors',
-                      active ? 'border-qq-blue bg-qq-blue' : 'border-qq-text-secondary/50'
-                    )}
-                    >
-                      {active && <span className='w-1.5 h-1.5 rounded-full bg-white' />}
-                    </span>
+            <RadioGroup
+              value={settings.profileCacheMode}
+              onChange={v => update({ profileCacheMode: v as ProfileCacheMode })}
+              className='mx-3 rounded-xl bg-qq-input overflow-hidden divide-y divide-qq-divider'
+              aria-label='联系人/群组统计'
+            >
+              {PROFILE_CACHE_OPTIONS.map(opt => (
+                <Radio
+                  key={opt.value}
+                  value={opt.value}
+                  className='w-full flex items-center gap-3 px-3.5 py-2.5 hover:bg-qq-hover transition-colors text-left'
+                >
+                  <Radio.Content>
+                    <Radio.Control className='shrink-0'>
+                      <Radio.Indicator />
+                    </Radio.Control>
                     <span className='min-w-0'>
-                      <span className='block text-[13px]'>{opt.label}</span>
+                      <Label className='block text-[13px]'>{opt.label}</Label>
                       <span className='block text-xs text-qq-text-secondary'>{opt.desc}</span>
                     </span>
-                  </button>
-                )
-              })}
-            </div>
+                  </Radio.Content>
+                </Radio>
+              ))}
+            </RadioGroup>
 
             {/* 消息存储 */}
             <div className='flex items-center gap-1.5 px-5 pt-4 pb-1.5 text-xs text-qq-text-secondary'>
@@ -364,7 +329,17 @@ const SettingsView: React.FC = () => {
                   <span className='block text-[13px]'>全局消息存储</span>
                   <span className='block text-xs text-qq-text-secondary'>关闭后所有 Bot 都不存储消息（即使单独开启）</span>
                 </span>
-                <Switch checked={settings.messageStore} onChange={v => update({ messageStore: v })} />
+                <Switch
+                  aria-label='全局消息存储'
+                  isSelected={settings.messageStore}
+                  onChange={v => update({ messageStore: v })}
+                >
+                  <Switch.Content>
+                    <Switch.Control>
+                      <Switch.Thumb />
+                    </Switch.Control>
+                  </Switch.Content>
+                </Switch>
               </div>
               <div className={cn(!settings.messageStore && 'opacity-50 pointer-events-none')}>
                 <div className='px-3.5 pt-2 pb-1 text-xs text-qq-text-secondary'>
@@ -381,10 +356,17 @@ const SettingsView: React.FC = () => {
                       <span className='block text-xs text-qq-text-secondary truncate'>{b.selfId}</span>
                     </span>
                     <Switch
-                      checked={settings.messageStoreBots.includes(b.selfId)}
-                      disabled={!settings.messageStore}
+                      aria-label={`存储 ${b.name} 的消息`}
+                      isSelected={settings.messageStoreBots.includes(b.selfId)}
+                      isDisabled={!settings.messageStore}
                       onChange={v => toggleStoreBot(b.selfId, v)}
-                    />
+                    >
+                      <Switch.Content>
+                        <Switch.Control>
+                          <Switch.Thumb />
+                        </Switch.Control>
+                      </Switch.Content>
+                    </Switch>
                   </div>
                 ))}
               </div>

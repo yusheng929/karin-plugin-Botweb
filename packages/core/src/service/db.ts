@@ -101,6 +101,11 @@ const init = (): Promise<Sqlite> => {
       if (!msgCols.some(c => c.name === 'reactions')) {
         await db.run(`ALTER TABLE messages ADD COLUMN reactions TEXT NOT NULL DEFAULT ''`)
       }
+      // 老库迁移：members 补 title 列（群内专属头衔，空串=无）
+      const memberCols = await db.all<{ name: string }>('PRAGMA table_info(members)')
+      if (!memberCols.some(c => c.name === 'title')) {
+        await db.run(`ALTER TABLE members ADD COLUMN title TEXT NOT NULL DEFAULT ''`)
+      }
       logger.info(`[BotWeb] 资料缓存 db 已就绪：${file}`)
       return db
     } catch (err) {
@@ -158,6 +163,8 @@ export interface MemberRow {
   nick: string
   card: string
   role: string
+  /** 群内专属头衔（空串=无） */
+  title: string
   updated_at: number
 }
 
@@ -176,14 +183,15 @@ export const memberDb = {
   async upsert (row: Omit<MemberRow, 'updated_at'>): Promise<void> {
     const db = await init()
     await db.run(
-      `INSERT INTO members (self_id, group_id, user_id, nick, card, role, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO members (self_id, group_id, user_id, nick, card, role, title, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (self_id, group_id, user_id) DO UPDATE SET
          nick       = CASE WHEN excluded.nick != '' THEN excluded.nick ELSE members.nick END,
          card       = CASE WHEN excluded.card != '' THEN excluded.card ELSE members.card END,
          role       = excluded.role,
+         title      = CASE WHEN excluded.title != '' THEN excluded.title ELSE members.title END,
          updated_at = excluded.updated_at`,
-      [row.self_id, row.group_id, row.user_id, row.nick, row.card, row.role, Date.now()]
+      [row.self_id, row.group_id, row.user_id, row.nick, row.card, row.role, row.title, Date.now()]
     )
   },
 
@@ -327,7 +335,7 @@ export const messageDb = {
   },
 
   /**
-   * 按会话分页拉取历史消息（游标为 sqlite rowid，单调递增与到达顺序一致，避免 time 同毫秒撞车漏消息）：
+   * 按会话分页拉取历史消息（游标为 sqlite rowid 字符串，单调递增与到达顺序一致，避免 time 同毫秒撞车漏消息）：
    * before 传上一页的 cursor（最旧一条的 rowid），返回时间升序的一页 + 是否还有更早 + 新游标
    */
   async listPage (selfId: string, scene: ChatMessage['scene'], peer: string, before: number | null, limit: number): Promise<MessagePage> {
@@ -344,7 +352,43 @@ export const messageDb = {
     return {
       messages: page.map(toChatMessage).reverse(),
       hasMore,
-      cursor: page.length > 0 ? page[page.length - 1].rid : null
+      cursor: page.length > 0 ? String(page[page.length - 1].rid) : null
     }
+  },
+
+  /** 批量查询一组 messageId 中哪些已在本地标记撤回（协议端历史页的撤回标记叠加用） */
+  async recalledIds (selfId: string, scene: ChatMessage['scene'], peer: string, ids: string[]): Promise<Set<string>> {
+    if (ids.length === 0) return new Set()
+    const db = await init()
+    const rows = await db.all<{ message_id: string }>(
+      `SELECT message_id FROM messages
+       WHERE self_id = ? AND scene = ? AND peer = ? AND recalled = 1
+         AND message_id IN (${ids.map(() => '?').join(',')})`,
+      [selfId, scene, peer, ...ids]
+    )
+    return new Set(rows.map(r => r.message_id))
+  },
+
+  /** 取时间范围内本地已标记撤回的消息（防撤回补洞：协议端历史里被撤掉的消息从本地补回） */
+  async recalledInRange (selfId: string, scene: ChatMessage['scene'], peer: string, startMs: number, endMs: number): Promise<ChatMessage[]> {
+    const db = await init()
+    const rows = await db.all<MessageRow>(
+      'SELECT * FROM messages WHERE self_id = ? AND scene = ? AND peer = ? AND recalled = 1 AND time BETWEEN ? AND ?',
+      [selfId, scene, peer, startMs, endMs]
+    )
+    return rows.map(toChatMessage)
+  },
+
+  /** 该会话本地最新一条协议端消息的 messageId（历史分页锚点用；排除 poke-、local- 前缀的本地合成消息） */
+  async latestMessageId (selfId: string, scene: ChatMessage['scene'], peer: string): Promise<string | null> {
+    const db = await init()
+    const row = await db.get<{ message_id: string }>(
+      `SELECT message_id FROM messages
+       WHERE self_id = ? AND scene = ? AND peer = ?
+         AND message_id NOT LIKE 'poke-%' AND message_id NOT LIKE 'local-%'
+       ORDER BY rowid DESC LIMIT 1`,
+      [selfId, scene, peer]
+    )
+    return row?.message_id ?? null
   }
 }

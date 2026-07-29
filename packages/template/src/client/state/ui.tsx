@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { toast as heroToast } from '@heroui/react'
 import { ChatMessage } from '../../core/types'
 
 export interface ContextMenuState {
@@ -18,6 +19,9 @@ export interface Toast {
   type: 'success' | 'error' | 'info'
 }
 
+/** 面板 toast 类型 -> HeroUI toast variant（info 用 accent 蓝） */
+const TOAST_VARIANT = { success: 'success', error: 'danger', info: 'accent' } as const
+
 interface UiContextType {
   // 主题
   theme: 'light' | 'dark' | 'system'
@@ -29,7 +33,6 @@ interface UiContextType {
   setNavView: (v: 'chats' | 'contacts' | 'settings') => void
 
   // 全局浮层
-  toast: Toast | null
   setToast: (toast: string | Toast | null) => void
   alertDialog: { title: string, message: string } | null
   setAlertDialog: (v: { title: string, message: string } | null) => void
@@ -74,7 +77,6 @@ export const UiProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>('light')
   const actualTheme = theme === 'system' ? systemTheme : theme
 
-  const [toast, _setToast] = useState<Toast | null>(null)
   const [alertDialog, setAlertDialog] = useState<{ title: string, message: string } | null>(null)
   const [confirmDialog, setConfirmDialog] = useState<{ title: string, message: string, onConfirm: () => void, confirmText?: string, cancelText?: string } | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
@@ -93,20 +95,15 @@ export const UiProvider: React.FC<{ children: React.ReactNode }> = ({ children }
 
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  /** HeroUI toast：状态由 ToastQueue 管理（5 秒自动关闭），setToast(null) 清空全部 */
   const setToast = useCallback((val: string | Toast | null) => {
-    if (typeof val === 'string') {
-      _setToast({ message: val, type: 'info' })
-    } else {
-      _setToast(val)
+    if (val === null) {
+      heroToast.clear()
+      return
     }
+    const t = typeof val === 'string' ? { message: val, type: 'info' as const } : val
+    heroToast(t.message, { variant: TOAST_VARIANT[t.type], timeout: 5000 })
   }, [])
-
-  useEffect(() => {
-    if (toast) {
-      const timer = setTimeout(() => _setToast(null), 5000)
-      return () => clearTimeout(timer)
-    }
-  }, [toast])
 
   useEffect(() => {
     localStorage.setItem('theme', theme)
@@ -139,7 +136,6 @@ export const UiProvider: React.FC<{ children: React.ReactNode }> = ({ children }
       actualTheme,
       navView,
       setNavView,
-      toast,
       setToast,
       alertDialog,
       setAlertDialog,

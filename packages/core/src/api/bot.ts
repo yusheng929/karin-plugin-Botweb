@@ -31,6 +31,20 @@ router.get('/bots/:selfId/messages', async (req, res) => {
   res.json(ok(await messageDb.listPage(req.params.selfId, scene as ChatScene, peer, before, limit)))
 })
 
+/** 该 bot 指定会话的协议端历史消息（懒加载：before 传上一页 cursor 即 messageId，limit 默认 100、上限 500，时间升序） */
+router.get('/bots/:selfId/history', async (req, res) => {
+  const scene = String(req.query.scene || '')
+  const peer = String(req.query.peer || '')
+  if ((scene !== 'friend' && scene !== 'group') || !peer) {
+    res.json(fail('scene（friend/group）与 peer 参数必填'))
+    return
+  }
+  const before = String(req.query.before || '') || null
+  const limitRaw = Number(req.query.limit)
+  const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(Math.floor(limitRaw), 500) : 100
+  res.json(await BotService.history(req.params.selfId, scene as ChatScene, peer, before, limit))
+})
+
 /** 好友列表 */
 router.get('/bots/:selfId/friends', async (req, res) => {
   res.json(await BotService.friends(req.params.selfId))

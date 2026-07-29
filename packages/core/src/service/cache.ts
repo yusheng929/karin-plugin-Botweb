@@ -25,7 +25,8 @@ const toMemberItem = (row: MemberRow): GroupMemberItem => ({
   userId: row.user_id,
   nick: row.nick || undefined,
   card: row.card || undefined,
-  role: row.role === 'owner' || row.role === 'admin' ? row.role : 'member'
+  role: row.role === 'owner' || row.role === 'admin' ? row.role : 'member',
+  title: row.title || undefined
 })
 
 export const ProfileCache = {
@@ -107,7 +108,8 @@ export const ProfileCache = {
       user_id: item.userId,
       nick: item.nick || '',
       card: item.card || '',
-      role: item.role
+      role: item.role,
+      title: item.title || ''
     }).catch(() => {})
   },
 

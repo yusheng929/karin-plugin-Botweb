@@ -33,9 +33,9 @@ interface ChatContextType {
   currentKey: string | null
   currentConversation: Conversation | null
   openConversation: (key: string | null) => void
-  /** 当前会话的消息（打开会话时从后端 db 分页拉取 + 页面打开后累积的实时消息 + 自己发送的，只存内存） */
+  /** 当前会话的消息（打开会话时分页拉取（协议端历史优先，本地 db 兜底） + 页面打开后累积的实时消息 + 自己发送的，只存内存） */
   messages: ChatMessage[]
-  /** 当前会话在后端 db 里是否还有更早的历史消息（驱动「加载更早」入口） */
+  /** 当前会话是否还有更早的历史消息（驱动「加载更早」入口） */
   historyHasMore: boolean
   /** 拉取当前会话的更早一页历史消息（合并进 messageMap，游标自动推进） */
   loadEarlierMessages: () => Promise<void>
@@ -208,8 +208,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [messageMap, dispatchMessages] = useReducer(messageMapReducer, {})
   const [currentKey, setCurrentKey] = useState<string | null>(null)
   const [unreadByBot, dispatchUnread] = useReducer(unreadReducer, {})
-  /** 各会话的历史分页状态：loaded=首页已拉过，hasMore=后端还有更早，cursor=下一页游标（sqlite rowid） */
-  const [historyMap, setHistoryMap] = useState<Record<string, { loaded: boolean, hasMore: boolean, cursor: number | null }>>({})
+  /** 各会话的历史分页状态：loaded=首页已拉过，hasMore=还有更早，cursor=协议端历史游标（最旧一条 messageId），
+   *  localCursor=本地 db 兜底游标（rowid 字符串），source=当前生效数据源（protocol=协议端历史 / local=本地 db 兜底） */
+  const [historyMap, setHistoryMap] = useState<Record<string, { loaded: boolean, hasMore: boolean, cursor: string | null, localCursor: string | null, source: 'protocol' | 'local' | null }>>({})
   const [groupMembers, setGroupMembers] = useState<GroupMemberItem[]>([])
   /** 用户头像表：`${selfId}:${userId}` -> url（来源：profiles 推送增量 + avatars 接口补拉，均为后端协议端 getAvatarUrl） */
   const [avatarMap, setAvatarMap] = useState<Record<string, string>>({})
@@ -257,16 +258,33 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return (messageMapRef.current[fullKey(selfId, scene, peer)] || []).find(m => m.messageId === messageId)
   }, [])
 
-  /** 拉取指定会话的更早一页历史消息（游标自动推进，幂等防并发；首页 before=null 拉最新一页） */
+  /** 拉取指定会话的更早一页历史消息（游标自动推进，幂等防并发；首页 before=null 拉最新一页）。
+   *  双源分页：优先走协议端 getHistoryMsg 懒加载，协议端不支持时永久降级本地 db 兜底 */
   const fetchHistoryPage = useCallback(async (selfId: string, scene: ChatScene, peer: string) => {
     const key = fullKey(selfId, scene, peer)
     if (historyLoadingRef.current.has(key)) return
     historyLoadingRef.current.add(key)
     try {
-      const cursor = historyMapRef.current[key]?.cursor ?? null
-      const page = await api.getMessages(selfId, scene, peer, cursor)
-      dispatchMessages({ type: 'merge', entries: { [key]: page.messages } })
-      setHistoryMap(prev => ({ ...prev, [key]: { loaded: true, hasMore: page.hasMore, cursor: page.cursor } }))
+      const h = historyMapRef.current[key]
+      if (h?.source !== 'local') {
+        try {
+          const page = await api.getHistory(selfId, scene, peer, h?.cursor ?? null)
+          dispatchMessages({ type: 'merge', entries: { [key]: page.messages } })
+          setHistoryMap(prev => ({ ...prev, [key]: { loaded: true, hasMore: page.hasMore, cursor: page.cursor, localCursor: prev[key]?.localCursor ?? null, source: 'protocol' } }))
+        } catch (err) {
+          // 此前协议端成功过，视为临时失败：直接抛出由 MessageList 弹 toast 让用户重试，不降级
+          if (h?.source === 'protocol') throw err
+          // 协议端不支持 getHistoryMsg（如 qqbot）：永久降级本地 db 兜底
+          const page = await api.getMessages(selfId, scene, peer, h?.localCursor ?? null)
+          dispatchMessages({ type: 'merge', entries: { [key]: page.messages } })
+          setHistoryMap(prev => ({ ...prev, [key]: { loaded: true, hasMore: page.hasMore, cursor: prev[key]?.cursor ?? null, localCursor: page.cursor, source: 'local' } }))
+        }
+      } else {
+        // 已降级本地 db：继续按 rowid 游标拉取
+        const page = await api.getMessages(selfId, scene, peer, h.localCursor ?? null)
+        dispatchMessages({ type: 'merge', entries: { [key]: page.messages } })
+        setHistoryMap(prev => ({ ...prev, [key]: { loaded: true, hasMore: page.hasMore, cursor: prev[key]?.cursor ?? null, localCursor: page.cursor, source: 'local' } }))
+      }
     } finally {
       historyLoadingRef.current.delete(key)
     }
@@ -294,7 +312,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .then(list => {
         setBots(list)
         if (list.length > 0) setCurrentBotId(list[0].selfId)
-        // 恢复所有 bot 的未读缓存（消息本身走后端 db 持久化，见下方 getMessages 拉取）
+        // 恢复所有 bot 的未读缓存（消息本身走后端持久化/协议端历史，见下方历史分页拉取）
         const unreadEntries: UnreadState = {}
         for (const bot of list) {
           try {
@@ -627,7 +645,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     [messageMap, currentBotId, currentKey]
   )
 
-  /** 当前会话在后端 db 里是否还有更早的历史消息（未拉过首页时按有更处理，驱动「加载更早」入口先拉首页） */
+  /** 当前会话是否还有更早的历史消息（未拉过首页时按有更处理，驱动「加载更早」入口先拉首页） */
   const historyHasMore = useMemo(() => {
     if (!currentBotId || !currentKey) return false
     const h = historyMap[fullKey(currentBotId, currentKey.split(':')[0] as ChatScene, currentKey.split(':')[1])]

@@ -58,6 +58,34 @@ export const downloadFile = async (url: string, name?: string) => {
 }
 
 /**
+ * 复制文本到剪贴板：优先 Clipboard API（仅安全上下文可用：https/localhost），
+ * http 局域网访问或权限拒绝时降级为隐藏 textarea + execCommand
+ */
+export const copyTextToClipboard = async (text: string): Promise<void> => {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return
+    } catch { /* 降级 execCommand */ }
+  }
+  const ta = document.createElement('textarea')
+  ta.value = text
+  // 不可见但可被选中（display:none 的元素无法 select）
+  ta.style.position = 'fixed'
+  ta.style.top = '0'
+  ta.style.left = '0'
+  ta.style.opacity = '0'
+  document.body.appendChild(ta)
+  ta.focus()
+  ta.select()
+  try {
+    if (!document.execCommand('copy')) throw new Error('execCommand copy 被浏览器拒绝')
+  } finally {
+    ta.remove()
+  }
+}
+
+/**
  * 复制图片到剪贴板：fetch blob → ClipboardItem（非 png 经 canvas 转 png）。
  * 失败时降级复制图片地址文本。返回实际复制的内容类型。
  */
@@ -80,7 +108,7 @@ export const copyImageToClipboard = async (file: string): Promise<'image' | 'url
     await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
     return 'image'
   } catch (e) {
-    await navigator.clipboard.writeText(src)
+    await copyTextToClipboard(src)
     return 'url'
   }
 }

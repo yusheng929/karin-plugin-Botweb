@@ -1,10 +1,15 @@
 import karin from 'node-karin'
+import type { MessageResponse } from 'node-karin'
 import { ApiResult } from '@/types'
 import { fail, ok } from './response'
-import { toBotInfo, toForwardMessageItem, toFriendItem, toGroupItem, toMemberItem } from './dto'
-import type { BotInfo, ForwardMessageItem, FriendItem, GroupItem, GroupMemberItem } from './dto'
+import { toBotInfo, toForwardMessageItem, toFriendItem, toGroupItem, toHistoryChatMessage, toMemberItem } from './dto'
+import type { BotInfo, ChatMessage, ForwardMessageItem, FriendItem, GroupItem, GroupMemberItem, MessagePage } from './dto'
 import { ProfileCache } from './cache'
 import { SettingsService } from './settings'
+import { messageDb } from './db'
+
+/** 时间戳归一为毫秒（karin 事件是秒级，本地 db 是毫秒：>1e12 视为毫秒） */
+const toMs = (time: number) => (time > 1e12 ? time : time * 1000)
 
 export const BotService = {
   get (Id: string) {
@@ -151,6 +156,64 @@ export const BotService = {
       return ok(list.map(toForwardMessageItem))
     } catch (err) {
       return fail(err instanceof Error ? err.message : '获取合并转发消息失败')
+    }
+  },
+
+  /**
+   * 拉取协议端历史消息（懒加载分页，before 传上一页 cursor 即 messageId，limit 默认 100、上限 500）。
+   * 取数顺序：有 before 直接按 messageId 锚点拉；无 before 先试 seq=0 拉最新（NapCat 群聊原生支持，
+   * milky 由适配器映射为拉最新；不支持的协议端抛错吞掉）；再回退到本地 db 最新 messageId 作锚点（返回锚点之前的历史，锚点消息前端已有种子）。
+   * 返回时间升序 + hasMore + cursor（本页最早一条的 messageId）。
+   */
+  async history (selfId: string, scene: 'friend' | 'group', peer: string, before: string | null, limit: number): Promise<ApiResult<MessagePage>> {
+    const bot = this.get(selfId)
+    if (!bot) return fail('Bot不存在')
+    const contact = scene === 'group' ? karin.contactGroup(peer) : karin.contactFriend(peer)
+    // 多取 1 条用于判定 hasMore
+    const count = limit + 1
+    try {
+      let raw: MessageResponse[] | null | undefined
+      if (before) {
+        raw = await bot.getHistoryMsg(contact, before, count)
+      } else {
+        // 无 before 先试 seq=0 拉最新（NapCat 群聊原生支持；milky 由适配器映射为「拉最新」；
+        // 不支持的协议端（Lagrange/qqbot）抛错吞掉，走锚点回退）
+        raw = await bot.getHistoryMsg(contact, 0, count).catch(() => null)
+      }
+      if (!raw) {
+        const anchor = await messageDb.latestMessageId(selfId, scene, peer)
+        if (!anchor) return fail('协议端不支持或无可用历史锚点')
+        raw = await bot.getHistoryMsg(contact, anchor, count)
+      }
+      const hasMore = raw.length > limit
+      const pageMsgs = raw.slice(0, limit)
+        .map(item => toHistoryChatMessage(item, selfId, scene, peer))
+        .sort((a, b) => toMs(a.time) - toMs(b.time))
+      const cursor = pageMsgs.length > 0 ? pageMsgs[0].messageId : null
+      // 防撤回叠加：命中的消息标记 recalled；被撤回的消息已从协议端历史消失，从本地 db 补洞
+      const recalled = await messageDb.recalledIds(selfId, scene, peer, pageMsgs.map(m => m.messageId))
+      for (const m of pageMsgs) {
+        if (recalled.has(m.messageId)) m.recalled = true
+      }
+      const ids = new Set(pageMsgs.map(m => m.messageId))
+      const holes: ChatMessage[] = []
+      if (pageMsgs.length > 0) {
+        const startMs = toMs(pageMsgs[0].time)
+        const endMs = toMs(pageMsgs[pageMsgs.length - 1].time)
+        const recalledInRange = await messageDb.recalledInRange(selfId, scene, peer, startMs, endMs)
+        for (const m of recalledInRange) {
+          if (!ids.has(m.messageId)) holes.push(m)
+        }
+      }
+      const messages = [...pageMsgs, ...holes].sort((a, b) => toMs(a.time) - toMs(b.time))
+      // 持久化镜像：拉到的协议端历史写本地库作防撤回镜像，INSERT OR IGNORE 幂等，
+      // 已撤回的现有行不受影响；受消息存储设置门控
+      if (SettingsService.shouldStoreMessage(selfId)) {
+        void Promise.all(pageMsgs.map(m => messageDb.insert(m))).catch(() => {})
+      }
+      return ok({ messages, hasMore, cursor })
+    } catch (err) {
+      return fail(err instanceof Error ? err.message : '获取历史消息失败')
     }
   }
 }

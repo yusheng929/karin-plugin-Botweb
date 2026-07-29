@@ -1,5 +1,5 @@
 import React from 'react'
-import { cn } from '../utils'
+import { Avatar as HeroAvatar } from '@heroui/react'
 
 /** 头像占位底色板（按名字 hash 取色，色板 hex 保留） */
 const AVATAR_COLORS = ['#cc5049', '#d67722', '#955cdb', '#40a920', '#309eba', '#368ad1', '#c7508b']
@@ -10,17 +10,15 @@ const avatarColor = (name: string) => {
   return AVATAR_COLORS[h % AVATAR_COLORS.length]
 }
 
-/** 头像：有 url 用图片，否则用名称首字符圆形占位 */
-export const Avatar: React.FC<{ url?: string, name: string, className?: string }> = ({ url, name, className }) => {
-  if (url) {
-    return <img src={url} alt={name} referrerPolicy='no-referrer' className={cn('object-cover rounded-full', className)} />
-  }
-  return (
-    <div
-      className={cn('rounded-full text-white flex items-center justify-center font-medium select-none', className)}
+/** 头像（HeroUI Avatar）：有 url 用图片（加载失败自动回退），否则名称首字符圆形占位 */
+export const Avatar: React.FC<{ url?: string, name: string, className?: string }> = ({ url, name, className }) => (
+  <HeroAvatar className={className}>
+    {url && <HeroAvatar.Image src={url} alt={name} referrerPolicy='no-referrer' />}
+    <HeroAvatar.Fallback
+      className='text-white font-medium select-none text-[length:inherit]'
       style={{ backgroundColor: avatarColor(name || '?') }}
     >
       {(name || '?').charAt(0).toUpperCase()}
-    </div>
-  )
-}
+    </HeroAvatar.Fallback>
+  </HeroAvatar>
+)

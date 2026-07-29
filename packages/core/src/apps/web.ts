@@ -44,7 +44,10 @@ const broadcast = (payload: unknown) => {
 app.use(`${BASE}/api`, authMiddleware, apiRouter)
 
 // -------------------- QQ 小黄脸静态资源（本地化，见 scripts/download-faces.mjs） --------------------
-// 远程 jsDelivr 图床慢且易超时，表情文件下载到插件 resources/faces 下由本路由托管
+// 远程 jsDelivr 图床慢且易超时，表情文件下载到插件 resources/faces 下由本路由托管。
+// 注意：sendFile 必须显式 dotfiles:'allow'——express/send 默认 dotfiles:'ignore'，
+// 对路径含点目录段的文件直接 404；pnpm 部署时插件真实路径含 `.pnpm` 段
+// （node_modules/.pnpm/karin-plugin-botweb@x.y.z/...），不放开会导致生产环境表情全部 404
 const FACES_DIR = path.join(dir.pluginDir, 'resources', 'faces')
 
 app.get(`${BASE}/faces/manifest.json`, (_req: Request, res: Response) => {
@@ -54,7 +57,7 @@ app.get(`${BASE}/faces/manifest.json`, (_req: Request, res: Response) => {
     return
   }
   res.setHeader('Cache-Control', 'public, max-age=86400')
-  res.sendFile(file)
+  res.sendFile(file, { dotfiles: 'allow' })
 })
 
 app.get(`${BASE}/faces/:type/:name`, (req: Request, res: Response) => {
@@ -72,7 +75,7 @@ app.get(`${BASE}/faces/:type/:name`, (req: Request, res: Response) => {
     return
   }
   res.setHeader('Cache-Control', 'public, max-age=604800, immutable')
-  res.sendFile(file)
+  res.sendFile(file, { dotfiles: 'allow' })
 })
 
 // -------------------- 页面托管 --------------------

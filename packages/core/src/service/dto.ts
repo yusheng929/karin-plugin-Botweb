@@ -32,6 +32,8 @@ export interface GroupMemberItem {
   nick?: string
   card?: string
   role: 'owner' | 'admin' | 'member' | 'unknown'
+  /** 群内专属头衔（含自定义头衔，uniqueTitle；为空则不显示头衔徽章） */
+  title?: string
 }
 
 /** 用户头像增量项（profiles 推送的 users 字段，与 template/src/core/types.ts 保持一致） */
@@ -134,8 +136,8 @@ export interface MessagePage {
   messages: ChatMessage[]
   /** 是否还有更早的消息 */
   hasMore: boolean
-  /** 下一页游标（本页最旧一条的 sqlite rowid），无更多时为 null */
-  cursor: number | null
+  /** 下一页游标：协议端历史页为 messageId，本地 db 页为 sqlite rowid 字符串；无更多时为 null */
+  cursor: string | null
 }
 
 /** Bot 适配器 -> BotInfo */
@@ -167,7 +169,8 @@ export const toMemberItem = (member: GroupMemberInfo): GroupMemberItem => ({
   userId: String(member.userId),
   nick: member.nick,
   card: member.card,
-  role: member.role === 'owner' || member.role === 'admin' ? member.role : 'member'
+  role: member.role === 'owner' || member.role === 'admin' ? member.role : 'member',
+  title: member.uniqueTitle || undefined
 })
 
 /**
@@ -213,15 +216,21 @@ const toButtonItem = (btn: KarinButton): ButtonItem => ({
 /** 去重比较用文本归一：折叠所有空白（兼容 \r\n/\n、全角空格与首尾差异） */
 const normalizeDupText = (s: string): string => s.replace(/\s+/g, ' ').trim()
 
+/** QQ markdown 提及链接（[@名字](mqqapi://markdown/mention?...)）：协议端常把它拆成独立 at 元素下发，文本副本里不含这一行 */
+const MD_MENTION_RE = /\[@?([^\]]*)\]\(mqqapi:\/\/markdown\/mention[^)]*\)/g
+
 /**
  * markdown -> 纯文本近似：去掉常见语法标记。
  * 用于识别 NapCat/milky 等协议端随 markdown 段一起下发的「渲染后纯文本」副本
  * （如 `# 你好` 的副本是 `你好`）；只需覆盖 QQ 常用语法，
- * 覆盖不到时退化为原文比较，不影响正常消息
+ * 覆盖不到时退化为原文比较，不影响正常消息。
+ * mention=strip 时把提及链接整体剔除（副本常把它拆成独立 at 元素，不含提及文本）
  */
-const markdownToPlain = (md: string): string => md
+const markdownToPlain = (md: string, mention: 'keep' | 'strip' = 'keep'): string => md
+  .replace(MD_MENTION_RE, mention === 'strip' ? '' : '@$1') // QQ 提及链接 -> @名字 / 剔除
   .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1') // 图片 -> alt 文本
   .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1') // 链接 -> 链接文本
+  .replace(/\[([^\]]*)\]\[[^\]]*\]/g, '$1') // 引用式链接 [text][ref] -> 链接文本
   .replace(/^\s{0,3}#{1,6}\s+/gm, '') // 标题
   .replace(/^\s{0,3}>\s?/gm, '') // 引用块
   .replace(/^\s{0,3}(?:[-*+]|\d+\.)\s+/gm, '') // 无序/有序列表
@@ -267,12 +276,13 @@ export const convertElements = (list: Message['elements']): MessageElement[] => 
 
   // 部分协议端（NapCat/milky 等）会在同一条消息里同时下发 markdown 段和它的文本副本，
   // 副本可能是 markdown 原文、也可能是去掉语法后的纯文本（如 `# 你好` -> `你好`），
-  // 两种形态都识别并去掉，防止前端渲染两遍
+  // 提及链接则可能从副本里消失（拆成了独立 at 元素），三种形态都识别并去掉，防止前端渲染两遍
   const mdKeys = new Set<string>()
   for (const el of converted) {
     if (el.type !== 'markdown') continue
     mdKeys.add(normalizeDupText(el.content))
     mdKeys.add(normalizeDupText(markdownToPlain(el.content)))
+    mdKeys.add(normalizeDupText(markdownToPlain(el.content, 'strip')))
   }
   mdKeys.delete('')
   if (mdKeys.size === 0) return converted
@@ -299,6 +309,19 @@ export const toChatMessage = (e: Message): ChatMessage | null => {
 
 /** getForwardMsg 返回项 -> ForwardMessageItem */
 export const toForwardMessageItem = (item: MessageResponse): ForwardMessageItem => ({
+  senderId: String(item.sender.userId),
+  senderName: item.sender.nick || String(item.sender.userId),
+  time: item.time,
+  elements: convertElements(item.elements)
+})
+
+/** getHistoryMsg 返回项 -> ChatMessage（selfId/scene/peer 由调用方上下文补齐，MessageResponse 不带 bot 归属） */
+export const toHistoryChatMessage = (item: MessageResponse, selfId: string, scene: ChatScene, peer: string): ChatMessage => ({
+  messageId: String(item.messageId),
+  seq: Number(item.messageSeq) || 0,
+  selfId,
+  scene,
+  peer,
   senderId: String(item.sender.userId),
   senderName: item.sender.nick || String(item.sender.userId),
   time: item.time,

@@ -1,5 +1,6 @@
 import React, { useState } from 'react'
-import { Send, Loader2 } from 'lucide-react'
+import { Send } from 'lucide-react'
+import { Button, FieldError, Input, Spinner, TextField } from '@heroui/react'
 import { login } from '../auth'
 
 /**
@@ -52,23 +53,32 @@ export const LoginScreen: React.FC = () => {
             }}
             className='flex flex-col gap-3'
           >
-            <input
+            <TextField
+              fullWidth
+              autoFocus
               type='password'
               value={key}
-              onChange={e => setKey(e.target.value)}
-              placeholder='HTTP_AUTH_KEY'
-              autoFocus
-              className='w-full h-10 px-4 rounded-full bg-qq-input text-[13px] text-center outline-none placeholder:text-qq-text-secondary focus:ring-2 focus:ring-qq-blue/50 transition-shadow'
-            />
-            {error && <p className='text-xs text-qq-badge text-center leading-relaxed'>{error}</p>}
-            <button
-              type='submit'
-              disabled={loading || !key.trim()}
-              className='w-full h-10 rounded-full bg-qq-blue text-white text-[14px] font-medium transition-colors hover:bg-qq-blue-hover disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2'
+              onChange={setKey}
+              isInvalid={!!error}
+              aria-label='HTTP_AUTH_KEY'
             >
-              {loading && <Loader2 className='w-4 h-4 animate-spin' />}
-              登录
-            </button>
+              <Input placeholder='HTTP_AUTH_KEY' />
+              {error && <FieldError>{error}</FieldError>}
+            </TextField>
+            <Button
+              fullWidth
+              size='lg'
+              isPending={loading}
+              isDisabled={!key.trim()}
+              onPress={() => void submit()}
+            >
+              {({ isPending }) => (
+                <>
+                  {isPending && <Spinner color='current' size='sm' />}
+                  登录
+                </>
+              )}
+            </Button>
           </form>
 
           <p className='text-[11px] text-qq-text-secondary text-center mt-7 leading-relaxed'>

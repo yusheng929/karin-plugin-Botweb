@@ -1,4 +1,8 @@
+/* 级联层顺序（必须先于 tailwind 引入声明）：HeroUI 样式内部已按 theme/base/components 分层，
+   显式声明层顺序确保 utilities 始终最后，面板工具类可覆盖组件默认样式 */
+@layer theme, base, components, utilities;
 @import "tailwindcss";
+@import "@heroui/styles";
 
 /* 构建产物 html.ts 内含旧版类名字符串，排除防止死类自我延续进新 CSS */
 @source not "./generated/html.ts";
@@ -55,6 +59,7 @@
   --qq-badge: #ff3b30;
   --qq-badge-muted: #d8d8d8;
   --qq-owner: #ff9f43;
+  --qq-title: #8e6dd8;
   --qq-chat-bg: #f2f2f2;
   --qq-divider: rgba(0, 0, 0, 0.06);
   --qq-input: rgba(0, 0, 0, 0.05);
@@ -85,6 +90,7 @@
   --qq-badge: #ff3b30;
   --qq-badge-muted: #4a4a4a;
   --qq-owner: #ff9f43;
+  --qq-title: #a78bfa;
   --qq-chat-bg: #262626;
   --qq-divider: rgba(255, 255, 255, 0.06);
   --qq-input: rgba(255, 255, 255, 0.07);
@@ -328,6 +334,12 @@ body {
   background: color-mix(in srgb, var(--qq-blue) 14%, transparent);
 }
 
+/* 群内专属头衔徽章（含自定义头衔，紫色小胶囊，与角色徽章同款） */
+.role-badge-title {
+  color: var(--qq-title);
+  background: color-mix(in srgb, var(--qq-title) 14%, transparent);
+}
+
 /* 未读数胶囊（红色普通 / 灰色免打扰） */
 .unread-pill {
   display: inline-flex;
@@ -427,4 +439,22 @@ body {
 
 .no-scrollbar {
   scrollbar-width: none;
+}
+
+/* ===== 面板适配层（针对 HeroUI 组件的产品化微调） ===== */
+
+/* 侧栏搜索框：QQ NT 式全圆角胶囊（收敛默认尺寸/边框/阴影，贴合桌面侧栏） */
+.sidebar-search .search-field__group {
+  height: 32px;
+  border: none;
+  border-radius: 999px;
+  background: var(--qq-input);
+  box-shadow: none;
+  padding-inline: 12px;
+  gap: 6px;
+}
+.sidebar-search .search-field__input,
+.sidebar-search .search-field__input::placeholder {
+  font-size: 13px;
+  line-height: 20px;
 }

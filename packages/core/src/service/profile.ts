@@ -85,15 +85,19 @@ export const ProfileService = {
           })
         }
 
-        // 群成员统计：把发言者累积进 members 表（qqbot 等没有成员列表接口的协议端靠它攒成员名册）
+        // 群成员统计：把发言者累积进 members 表（qqbot 等没有成员列表接口的协议端靠它攒成员名册）。
+        // GroupSender 携带群名片/角色/专属头衔时一并入册（OneBot 群消息发送者字段）
         if (cacheEnabled && senderId && senderId !== e.selfId) {
           const memberKey = `member:${e.selfId}:${groupId}:${senderId}`
           if (!synced.has(memberKey) && !await ProfileCache.getMember(e.selfId, groupId, senderId)) {
             await run(memberKey, async () => {
+              const sender = e.sender as { nick?: string, card?: string, role?: string, title?: string }
               await ProfileCache.setMember(e.selfId, groupId, {
                 userId: senderId,
                 nick: e.sender.nick || '',
-                role: 'member'
+                card: sender.card || undefined,
+                role: sender.role === 'owner' || sender.role === 'admin' ? sender.role : 'member',
+                title: sender.title || undefined
               })
               synced.add(memberKey)
             })
