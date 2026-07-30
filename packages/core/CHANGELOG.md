@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.0.13](https://github.com/yusheng929/karin-plugin-botweb/compare/core-v1.0.12...core-v1.0.13) (2026-07-30)
+
+
+### 🐛 错误修复
+
+* 优化前端样式,删除多余逻辑 ([9c79c47](https://github.com/yusheng929/karin-plugin-botweb/commit/9c79c4716d3e0168e025a2a177c308a72d483d1a))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * devDependencies
+    * sandbox-template bumped to 1.0.13
+
 ## [1.0.12](https://github.com/yusheng929/karin-plugin-botweb/compare/core-v1.0.11...core-v1.0.12) (2026-07-29)
 
 
