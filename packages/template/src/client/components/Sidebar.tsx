@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react'
 import {
   ChevronDown,
   Database,
-  MessageSquareText,
   Plus,
   Check
 } from 'lucide-react'
@@ -12,7 +11,7 @@ import { getMessageSummary, toMillis, cn } from '../utils'
 import { getSettings, saveSettings } from '../api'
 import type { BotWebSettings, ProfileCacheMode } from '../../core/types'
 import { Avatar } from './Avatar'
-import { Button, Chip, Dropdown, EmptyState, Label, Radio, RadioGroup, SearchField, Switch } from '@heroui/react'
+import { Button, Chip, Dropdown, EmptyState, Label, Radio, RadioGroup, SearchField } from '@heroui/react'
 
 /** 会话列表时间：今天显示 HH:MM，昨天显示「昨天」，否则显示 M月d日 */
 const formatListTime = (time?: number) => {
@@ -251,7 +250,6 @@ const PROFILE_CACHE_OPTIONS: { value: ProfileCacheMode, label: string, desc: str
 
 /** 设置视图：macOS 系统设置风格的分组卡片 */
 const SettingsView: React.FC = () => {
-  const { bots } = useChat()
   const { setToast } = useUi()
   const [settings, setSettings] = useState<BotWebSettings | null>(null)
 
@@ -267,15 +265,6 @@ const SettingsView: React.FC = () => {
     saveSettings(patch).then(setSettings).catch(err => {
       setSettings(prev)
       setToast({ message: err.message || '保存设置失败', type: 'error' })
-    })
-  }
-
-  const toggleStoreBot = (selfId: string, on: boolean) => {
-    if (!settings) return
-    update({
-      messageStoreBots: on
-        ? [...settings.messageStoreBots, selfId]
-        : settings.messageStoreBots.filter(id => id !== selfId)
     })
   }
 
@@ -317,60 +306,6 @@ const SettingsView: React.FC = () => {
                 </Radio>
               ))}
             </RadioGroup>
-
-            {/* 消息存储 */}
-            <div className='flex items-center gap-1.5 px-5 pt-4 pb-1.5 text-xs text-qq-text-secondary'>
-              <MessageSquareText className='w-3.5 h-3.5' />
-              消息存储
-            </div>
-            <div className='mx-3 rounded-xl bg-qq-input overflow-hidden divide-y divide-qq-divider'>
-              <div className='flex items-center gap-3 px-3.5 py-2.5'>
-                <span className='flex-1 min-w-0'>
-                  <span className='block text-[13px]'>全局消息存储</span>
-                  <span className='block text-xs text-qq-text-secondary'>关闭后所有 Bot 都不存储消息（即使单独开启）</span>
-                </span>
-                <Switch
-                  aria-label='全局消息存储'
-                  isSelected={settings.messageStore}
-                  onChange={v => update({ messageStore: v })}
-                >
-                  <Switch.Content>
-                    <Switch.Control>
-                      <Switch.Thumb />
-                    </Switch.Control>
-                  </Switch.Content>
-                </Switch>
-              </div>
-              <div className={cn(!settings.messageStore && 'opacity-50 pointer-events-none')}>
-                <div className='px-3.5 pt-2 pb-1 text-xs text-qq-text-secondary'>
-                  单独开启的 Bot（全局开启时才生效，默认都不存储）
-                </div>
-                {bots.length === 0 && (
-                  <div className='px-3.5 py-4 text-[13px] text-qq-text-secondary'>暂无在线 Bot</div>
-                )}
-                {bots.map(b => (
-                  <div key={b.selfId} className='flex items-center gap-2.5 px-3.5 py-2'>
-                    <Avatar url={b.avatar} name={b.name} className='w-7 h-7 text-xs shrink-0' />
-                    <span className='flex-1 min-w-0'>
-                      <span className='block text-[13px] truncate'>{b.name}</span>
-                      <span className='block text-xs text-qq-text-secondary truncate'>{b.selfId}</span>
-                    </span>
-                    <Switch
-                      aria-label={`存储 ${b.name} 的消息`}
-                      isSelected={settings.messageStoreBots.includes(b.selfId)}
-                      isDisabled={!settings.messageStore}
-                      onChange={v => toggleStoreBot(b.selfId, v)}
-                    >
-                      <Switch.Content>
-                        <Switch.Control>
-                          <Switch.Thumb />
-                        </Switch.Control>
-                      </Switch.Content>
-                    </Switch>
-                  </div>
-                ))}
-              </div>
-            </div>
           </div>
           )}
     </>

@@ -40,9 +40,9 @@ interface UiContextType {
   setConfirmDialog: (v: { title: string, message: string, onConfirm: () => void, confirmText?: string, cancelText?: string } | null) => void
   contextMenu: ContextMenuState | null
   setContextMenu: (v: ContextMenuState | null) => void
-  /** 「原始事件」浮层展示的消息对象（右键菜单触发） */
-  rawMessage: ChatMessage | null
-  setRawMessage: (v: ChatMessage | null) => void
+  /** 「原始事件」浮层：右键菜单触发后按 msgid 拉取协议端原始消息（data 到位前为加载态） */
+  rawMessage: { data?: unknown, error?: string } | null
+  setRawMessage: (v: { data?: unknown, error?: string } | null) => void
   /** 「贴表情」选择器（右键菜单触发）：坐标 + 目标消息，由 Overlays 渲染 ReactionPicker */
   reactionPicker: { x: number, y: number, msg: ChatMessage } | null
   setReactionPicker: (v: { x: number, y: number, msg: ChatMessage } | null) => void
@@ -80,7 +80,7 @@ export const UiProvider: React.FC<{ children: React.ReactNode }> = ({ children }
   const [alertDialog, setAlertDialog] = useState<{ title: string, message: string } | null>(null)
   const [confirmDialog, setConfirmDialog] = useState<{ title: string, message: string, onConfirm: () => void, confirmText?: string, cancelText?: string } | null>(null)
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
-  const [rawMessage, setRawMessage] = useState<ChatMessage | null>(null)
+  const [rawMessage, setRawMessage] = useState<{ data?: unknown, error?: string } | null>(null)
   const [reactionPicker, setReactionPicker] = useState<{ x: number, y: number, msg: ChatMessage } | null>(null)
 
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)

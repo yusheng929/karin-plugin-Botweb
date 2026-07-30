@@ -79,10 +79,17 @@ export const ReactionPicker: React.FC<ReactionPickerProps> = ({ x, y, onSelect, 
       if (e.target instanceof Node && panelRef.current?.contains(e.target)) return
       onClose()
     }
+    // 左键点任意处关闭：捕获阶段 + contains 判定（群资料面板等区域对 click 做了 stopPropagation）
+    const onMouseDown = (e: MouseEvent) => {
+      if (panelRef.current?.contains(e.target as Node)) return
+      onClose()
+    }
+    window.addEventListener('mousedown', onMouseDown, true)
     window.addEventListener('click', onClose)
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('scroll', onScroll, true)
     return () => {
+      window.removeEventListener('mousedown', onMouseDown, true)
       window.removeEventListener('click', onClose)
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('scroll', onScroll, true)
@@ -92,12 +99,12 @@ export const ReactionPicker: React.FC<ReactionPickerProps> = ({ x, y, onSelect, 
   return (
     <div
       ref={panelRef}
-      className='fixed w-72 max-h-64 overflow-y-auto glass rounded-xl shadow-2xl p-2 animate-in fade-in zoom-in-95 duration-100 z-[400]'
+      className='fixed w-72 max-h-64 overflow-y-auto bg-qq-bg border border-qq-border rounded-xl shadow-2xl p-2 animate-in fade-in zoom-in-95 duration-100 z-[400]'
       style={{ left: pos.left, top: pos.top }}
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
     >
-      <div className='grid grid-cols-8'>
+      <div className='grid grid-cols-8 gap-0.5'>
         {(faceIds || FALLBACK_FACE_IDS).map(id => (
           <FaceCell key={id} id={id} onSelect={onSelect} />
         ))}

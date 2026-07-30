@@ -11,8 +11,7 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { render } from 'sandbox-template'
 import apiRouter from '@/api'
-import { toChatMessage, verifyWsToken, ProfileService, SettingsService } from '@/service'
-import { messageDb } from '@/service/db'
+import { toChatMessage, verifyWsToken, ProfileService } from '@/service'
 import { dir } from '@/dir'
 
 /** 面板挂载路径 */
@@ -111,11 +110,6 @@ hooks.message((e, next) => {
   const message = toChatMessage(e)
   if (message) {
     broadcast({ type: 'message', data: message })
-    // 消息持久化到本地 sqlite（fire-and-forget，同 ProfileService：hooks 里禁止 await 慢操作）。
-    // 受设置门控：全局开关关闭、或该 bot 未单独开启时不落库
-    if (SettingsService.shouldStoreMessage(e.selfId)) {
-      void messageDb.insert(message).catch(() => {})
-    }
     // 异步补全会话资料（头像/名称，写 db 缓存）：qqbot 等没有列表接口的协议端靠它给会话补头像。
     // 不 await——缓存读写与协议端调用较慢，阻塞 hooks 会拖慢所有下游插件
     void ProfileService.syncMessage(e).then(updates => {
@@ -135,44 +129,39 @@ const PRIVATE_RECALL_EVENT = 'notice.friendRecall' as unknown as 'notice.private
 const PRIVATE_POKE_EVENT = 'notice.friendPoke' as unknown as 'notice.privatePoke'
 
 /**
- * 撤回 / 戳一戳推送（戳一戳前端渲染为小灰条；撤回给原气泡打 recalled 标记）。
- * 撤回事件同时把 db 里的消息标记为已撤回，刷新后仍保持撤回态。
+ * 撤回 / 戳一戳推送（戳一戳前端渲染为小灰条；撤回给原气泡打 recalled 标记，仅实时态）。
  * 注意：karin.accept() 只是创建插件对象，karin 扫描 apps 模块的**具名导出**完成注册
  * （default 导出会被跳过），不导出就是死代码，所以这里集中导出为数组。
  */
 export const noticeHandlers = [
   // -------------------- 撤回推送 --------------------
   karin.accept(PRIVATE_RECALL_EVENT, (e, next) => {
-    const messageId = e.content.messageId
     broadcast({
       type: 'recall',
       data: {
         selfId: e.selfId,
-        messageId,
+        messageId: e.content.messageId,
         scene: 'friend',
         peer: String(e.contact.peer),
         operatorId: String(e.content.operatorId),
         targetId: String(e.content.operatorId)
       }
     })
-    void messageDb.markRecalled(e.selfId, 'friend', String(e.contact.peer), messageId).catch(() => {})
     next()
   }),
 
   karin.accept('notice.groupRecall', (e, next) => {
-    const messageId = e.content.messageId
     broadcast({
       type: 'recall',
       data: {
         selfId: e.selfId,
-        messageId,
+        messageId: e.content.messageId,
         scene: 'group',
         peer: String(e.groupId),
         operatorId: String(e.content.operatorId),
         targetId: String(e.content.targetId)
       }
     })
-    void messageDb.markRecalled(e.selfId, 'group', String(e.groupId), messageId).catch(() => {})
     next()
   }),
 
@@ -210,8 +199,7 @@ export const noticeHandlers = [
   }),
 
   // -------------------- 表情回应（QQ 贴表情）推送 --------------------
-  // -------------------- 表情回应（QQ 贴表情）推送 --------------------
-  // 前端给原气泡下方渲染 faceId 对应的 QFace + 次数；db 同步聚合，刷新后保留
+  // 前端给原气泡下方渲染 faceId 对应的 QFace + 次数（实时聚合，不落库）
   karin.accept('notice.groupMessageReaction', (e, next) => {
     const { messageId, faceId, count, isSet } = e.content
     const peer = String(e.contact.peer)
@@ -240,7 +228,6 @@ export const noticeHandlers = [
         isSet: realIsSet
       }
     })
-    void messageDb.applyReaction(e.selfId, 'group', peer, String(messageId), faceId, count, realIsSet).catch(() => {})
     next()
   })
 ]

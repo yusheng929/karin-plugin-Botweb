@@ -31,8 +31,9 @@ html = html.replace(/<script([^>]*?)\ssrc="([^"]+)"([^>]*)><\/script>/g, (match,
   return `<script${attrs ? ' ' + attrs : ''}>${code}</script>`
 })
 
-// 内联 <link rel="stylesheet" href="...">
+// 内联 <link rel="stylesheet" href="...">（http(s) 外链保留原样，如 CDN 字体）
 html = html.replace(/<link[^>]*rel="stylesheet"[^>]*href="([^"]+)"[^>]*>/g, (match, href) => {
+  if (/^https?:\/\//.test(href)) return match
   const file = join(distDir, href)
   if (!existsSync(file)) {
     console.warn(`[inline] 跳过缺失的样式: ${href}`)

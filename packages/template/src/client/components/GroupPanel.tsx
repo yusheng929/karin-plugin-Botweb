@@ -7,10 +7,14 @@ import { Avatar } from './Avatar'
 
 /** 群资料面板（QQ NT 最右栏 docked）：群公告占位 + 群成员列表 */
 export const GroupPanel: React.FC = () => {
-  const { currentConversation, groupMembers, resolveAvatar } = useChat()
+  const { currentBot, currentConversation, groupMembers, resolveAvatar } = useChat()
   const { setContextMenu } = useUi()
 
   if (!currentConversation || currentConversation.scene !== 'group') return null
+
+  /** 成员头像：bot 自身用 currentBot.avatar（头像补拉逻辑不覆盖自身），其余走 avatarMap */
+  const memberAvatar = (userId: string) =>
+    userId === currentBot?.selfId ? (currentBot.avatar || undefined) : resolveAvatar(userId)
 
   const members = [...groupMembers].sort((a, b) => {
     const priority: Record<string, number> = { owner: 1, admin: 2, member: 3, unknown: 4 }
@@ -72,7 +76,7 @@ export const GroupPanel: React.FC = () => {
               className='flex items-center gap-2.5 px-2 py-1.5 rounded-[8px] hover:bg-qq-hover transition-colors cursor-default'
             >
               <Avatar
-                url={resolveAvatar(member.userId)}
+                url={memberAvatar(member.userId)}
                 name={member.card || member.nick || member.userId}
                 className='w-8 h-8 text-xs shrink-0'
               />

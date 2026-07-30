@@ -9,7 +9,7 @@ import { ContextMenuState, Toast } from '../state/ui'
  * 这里的 value 经 useMemo 固定，只在 bot/会话切换、头像表或群成员表变化时才更新。
  */
 export interface MessageViewContextType {
-  /** 当前 bot（头像、protocol 判定、合并转发拉取用） */
+  /** 当前 bot（头像、protocol 判定用） */
   currentBot: BotInfo | null
   /** 私聊对方的会话头像（群会话为 undefined） */
   conversationAvatar?: string

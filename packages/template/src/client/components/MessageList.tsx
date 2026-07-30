@@ -123,11 +123,12 @@ export const MessageList: React.FC = () => {
     el.scrollTop = el.scrollHeight - anchor.height + anchor.top
   }, [visibleCount])
 
-  // 新消息到达：贴底状态下跟随；离开底部时累计「↓ N」浮标（自己发送的消息例外——QQ 语义，发送即回底部）
+  // 新消息到达：贴底状态下跟随；离开底部时累计「↓ N」浮标（自己发送的消息例外——QQ 语义，发送即回底部；
+  // 系统灰条不算「自己发送」：上翻翻历史时戳一戳/撤回提示不应把视口拽回底部）
   useEffect(() => {
     const last = messages[messages.length - 1]
     const lastId = last?.messageId ?? null
-    const isOwnLast = !!last && !!currentBot && last.senderId === currentBot.selfId
+    const isOwnLast = !!last && !last.system && !!currentBot && last.senderId === currentBot.selfId
     if (stickRef.current || isOwnLast) {
       stickRef.current = true
       scrollToBottom()

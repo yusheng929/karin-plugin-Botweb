@@ -1,10 +1,9 @@
-import React, { useState } from 'react'
-import { AlertCircle, FileIcon, Download, MessagesSquare, X } from 'lucide-react'
-import { ChatMessage, ButtonItem, ForwardMessageItem, MessageElement, ReactionItem } from '../../core/types'
+import React, { useEffect, useRef, useState } from 'react'
+import { AlertCircle, FileIcon, Download, Play, Pause } from 'lucide-react'
+import { ChatMessage, ButtonItem, MessageElement, ReactionItem } from '../../core/types'
 import { useMessageView } from './messageView'
-import { getMessageSummary, toMillis, formatSize, resolveMediaSrc, downloadFile, qqFaceGif, qqFacePng, isQQProtocol, cn } from '../utils'
+import { getMessageSummary, toMillis, formatSize, resolveMediaSrc, downloadFile, qqFaceGif, qqFacePng, isQQProtocol, cn, visibleElements } from '../utils'
 import { useCachedSrc } from '../faceCache'
-import { getForward } from '../api'
 import { Spinner } from '@heroui/react'
 import { Avatar } from './Avatar'
 import { MessageMarkdown } from './MessageMarkdown'
@@ -129,42 +128,116 @@ const formatFullTime = (time: number) => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
-/** 转发内容浮层里的单条元素渲染（简化版：图片不放大、嵌套转发显示占位） */
-const renderForwardElement = (part: MessageElement, idx: number): React.ReactNode => {
-  switch (part.type) {
-    case 'text':
-      return <span key={idx}>{part.text}</span>
-    case 'at':
-      return <span key={idx} className='text-qq-blue font-medium'>@{part.name || part.targetId}</span>
-    case 'face':
-      return <MessageFace key={idx} id={part.id} />
-    case 'image':
-      return (
-        <img
-          key={idx}
-          src={resolveMediaSrc(part.file)}
-          alt=''
-          referrerPolicy='no-referrer'
-          className='max-w-[240px] max-h-[240px] object-contain rounded-lg my-1 block'
-        />
-      )
-    case 'video':
-      return <video key={idx} controls src={part.file} className='max-w-[240px] max-h-[240px] rounded-lg my-1 block' />
-    case 'record':
-      return <audio key={idx} controls src={part.file} className='max-w-[240px] my-1 block' />
-    case 'file':
-      return <span key={idx} className='opacity-70'>[文件]{part.name || ''}{part.size ? `（${formatSize(part.size)}）` : ''}</span>
-    case 'reply':
-      return null
-    case 'forward':
-      return <span key={idx} className='opacity-70'>[嵌套的合并转发]</span>
-    case 'markdown':
-      return <MessageMarkdown key={idx} content={part.content} />
-    case 'buttons':
-      return <MessageButtons key={idx} rows={part.rows} />
-    default:
-      return <span key={idx} className='opacity-50'>{(part as { text?: string }).text || '[暂不支持的消息]'}</span>
+/**
+ * JSON 卡片消息（QQ 分享/小程序卡片）：按 QQ structmsg 结构渲染成 QQ 式卡片
+ * （标题 + 描述 + 右侧缩略图 + 底部应用行，有 jumpUrl 可点击打开）；
+ * 带音频的卡片（music 视图等有 musicUrl）缩略图叠加播放按钮，点击就地播放/暂停；
+ * 结构不识别或解析失败时回退为美化 JSON 文本。渲染只读取，消息体原文不修改
+ */
+const MessageJson: React.FC<{ data: string }> = ({ data }) => {
+  const [playing, setPlaying] = useState(false)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  // 卸载（消息滚出窗口/切换会话）时停止播放
+  useEffect(() => () => {
+    audioRef.current?.pause()
+    audioRef.current = null
+  }, [])
+
+  let raw: Record<string, any> | null = null
+  try { raw = JSON.parse(data) } catch { /* 落到文本兜底 */ }
+
+  // QQ structmsg：meta 里按 view 取内容对象（news/music/detail_1/notification 等），取不到则取 meta 首个对象值
+  const metaObj = raw?.meta && typeof raw.meta === 'object'
+    ? (raw.view && raw.meta[raw.view] && typeof raw.meta[raw.view] === 'object'
+      ? raw.meta[raw.view] as Record<string, any>
+      : Object.values(raw.meta).find(v => v && typeof v === 'object') as Record<string, any> | undefined)
+    : undefined
+
+  if (raw && metaObj && (metaObj.title || metaObj.desc)) {
+    /** 协议相对地址补 https（QQ 图床常见 // 开头） */
+    const normUrl = (u: unknown) => typeof u === 'string' && u.startsWith('//') ? `https:${u}` : (typeof u === 'string' ? u : '')
+    const title = metaObj.title || raw.prompt || ''
+    const desc = metaObj.desc && metaObj.desc !== title ? metaObj.desc : ''
+    const preview = normUrl(metaObj.preview || metaObj.cover || metaObj.pic || metaObj.image)
+    const jumpUrl = normUrl(metaObj.jumpUrl || metaObj.url || metaObj.qqdocurl)
+    const tag = metaObj.tag || metaObj.source || raw.desc || ''
+    const tagIcon = normUrl(metaObj.tagIcon || metaObj.source_icon || metaObj.icon)
+    /** 可播放音频地址（music 视图的 musicUrl，兼容 audioUrl/voiceUrl 变体） */
+    const audioUrl = normUrl(metaObj.musicUrl || metaObj.audioUrl || metaObj.voiceUrl)
+
+    /** 缩略图上的播放/暂停切换（点击不冒泡，不触发整卡 jumpUrl 跳转） */
+    const togglePlay = (e: React.MouseEvent) => {
+      e.stopPropagation()
+      if (!audioUrl) return
+      if (!audioRef.current) {
+        const a = new Audio(audioUrl)
+        a.onended = () => setPlaying(false)
+        a.onerror = () => setPlaying(false)
+        audioRef.current = a
+      }
+      if (playing) {
+        audioRef.current.pause()
+        setPlaying(false)
+      } else {
+        audioRef.current.play().catch(() => setPlaying(false))
+        setPlaying(true)
+      }
+    }
+
+    return (
+      <div
+        onClick={(e) => {
+          e.stopPropagation()
+          if (jumpUrl) window.open(jumpUrl, '_blank', 'noreferrer')
+        }}
+        className={cn(
+          'w-[260px] rounded-xl bg-qq-bg border border-qq-border/60 shadow-sm p-3 select-none transition-colors',
+          jumpUrl ? 'cursor-pointer hover:bg-qq-hover' : 'cursor-default'
+        )}
+      >
+        <div className='flex items-start gap-2.5'>
+          <div className='flex-1 min-w-0'>
+            {title && <div className='text-[14px] font-medium text-qq-text leading-snug line-clamp-2 break-words'>{title}</div>}
+            {desc && <div className='text-[12px] text-qq-text-secondary mt-0.5 line-clamp-2 break-words'>{desc}</div>}
+          </div>
+          {preview && audioUrl && (
+            <button
+              onClick={togglePlay}
+              title={playing ? '暂停' : '播放'}
+              className='relative w-12 h-12 rounded-lg overflow-hidden shrink-0 cursor-pointer'
+            >
+              <img src={preview} alt='' referrerPolicy='no-referrer' className='w-full h-full object-cover' />
+              <span className='absolute inset-0 flex items-center justify-center bg-black/35'>
+                {playing ? <Pause className='w-5 h-5 text-white' /> : <Play className='w-5 h-5 text-white' />}
+              </span>
+            </button>
+          )}
+          {preview && !audioUrl && (
+            <img src={preview} alt='' referrerPolicy='no-referrer' className='w-12 h-12 rounded-lg object-cover shrink-0' />
+          )}
+        </div>
+        {(tag || tagIcon) && (
+          <div className='flex items-center gap-1.5 mt-2 pt-2 border-t border-qq-border/40'>
+            {tagIcon && <img src={tagIcon} alt='' referrerPolicy='no-referrer' className='w-3.5 h-3.5 rounded-sm object-cover shrink-0' />}
+            <span className='text-[11px] text-qq-text-secondary truncate'>{tag}</span>
+          </div>
+        )}
+      </div>
+    )
   }
+
+  // 兜底：美化 JSON 文本（解析失败展示原文）
+  const pretty = raw ? JSON.stringify(raw, null, 2) : data
+  return (
+    <div className='rounded-lg border border-qq-border/60 bg-qq-hover/50 min-w-[240px] max-w-full overflow-hidden'>
+      <div className='px-2.5 py-1 text-[11px] font-medium text-qq-text-secondary border-b border-qq-border/40 select-none'>
+        JSON
+      </div>
+      <pre className='px-2.5 py-1.5 text-[11px] leading-relaxed font-mono whitespace-pre-wrap break-all max-h-[300px] overflow-y-auto select-text'>
+        {pretty}
+      </pre>
+    </div>
+  )
 }
 
 /**
@@ -199,96 +272,6 @@ const MessageButtons: React.FC<{ rows: ButtonItem[][] }> = ({ rows }) => (
     ))}
   </div>
 )
-
-/**
- * 合并转发卡片（QQ NT 式）：列表里显示白色卡片，点击后按需调
- * GET /bots/:selfId/forward 拉取内容，毛玻璃浮层逐条展示
- */
-const MessageForward: React.FC<{ resId: string }> = ({ resId }) => {
-  const { currentBot, setToast } = useMessageView()
-  const [open, setOpen] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [items, setItems] = useState<ForwardMessageItem[] | null>(null)
-
-  const openViewer = async (e: React.MouseEvent) => {
-    e.stopPropagation()
-    setOpen(true)
-    if (items !== null || loading || !currentBot) return
-    setLoading(true)
-    try {
-      setItems(await getForward(currentBot.selfId, resId))
-    } catch (err) {
-      setOpen(false)
-      setToast({ message: err instanceof Error ? err.message : '获取合并转发消息失败', type: 'error' })
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <>
-      <div
-        onClick={openViewer}
-        className='w-[240px] rounded-xl bg-qq-bg border border-qq-border/60 shadow-sm p-3 cursor-pointer hover:bg-qq-hover transition-colors select-none'
-      >
-        <div className='flex items-center gap-2.5'>
-          <div className='w-9 h-9 rounded-lg bg-qq-blue/10 text-qq-blue flex items-center justify-center shrink-0'>
-            <MessagesSquare className='w-5 h-5' />
-          </div>
-          <div className='flex-1 min-w-0'>
-            <div className='text-[13px] font-medium text-qq-text truncate'>合并转发</div>
-            <div className='text-[11px] text-qq-text-secondary truncate'>点击展开聊天记录</div>
-          </div>
-        </div>
-      </div>
-
-      {open && (
-        <div
-          className='fixed inset-0 z-[300] bg-black/40 flex items-center justify-center p-4 animate-in fade-in duration-200'
-          onClick={() => setOpen(false)}
-          onContextMenu={(e) => e.preventDefault()}
-        >
-          <div
-            className='glass rounded-2xl shadow-2xl w-full max-w-[480px] max-h-[75vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200'
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className='flex items-center justify-between px-4 py-3 border-b border-qq-border/40 shrink-0'>
-              <span className='text-[14px] font-medium'>合并转发{items ? `（${items.length} 条）` : ''}</span>
-              <button
-                onClick={() => setOpen(false)}
-                className='p-1 rounded-full hover:bg-qq-hover transition-colors text-qq-text-secondary'
-                title='关闭'
-              >
-                <X className='w-4 h-4' />
-              </button>
-            </div>
-            <div className='flex-1 overflow-y-auto px-4 py-3'>
-              {loading && (
-                <div className='flex items-center justify-center py-10'>
-                  <Spinner />
-                </div>
-              )}
-              {items?.map((item, i) => (
-                <div key={i} className='mb-3 last:mb-0'>
-                  <div className='text-[11px] text-qq-text-secondary mb-0.5'>
-                    {item.senderName} · {formatFullTime(item.time)}
-                  </div>
-                  <div className='text-[13px] leading-[1.6] break-words'>
-                    {item.elements.map(renderForwardElement)}
-                  </div>
-                </div>
-              ))}
-              {items && items.length === 0 && (
-                <div className='text-center py-10 text-[12px] text-qq-text-secondary'>暂无内容</div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  )
-}
-
 
 interface MessageItemProps {
   message: ChatMessage
@@ -353,11 +336,12 @@ const MessageItemInner: React.FC<MessageItemProps> = ({ message, isMe, groupStar
     return null
   })()
 
-  const parts = message.elements
+  // NC 的 markdown 消息会多带一段紧跟其后的兜底文本，渲染层统一过滤（见 utils.visibleElements）
+  const parts = visibleElements(message.elements)
   const hasText = parts.some(p => (p.type === 'text' && p.text.trim() !== '') || ['at', 'reply', 'face', 'file', 'record', 'markdown', 'buttons', 'other'].includes(p.type))
   const isPureMedia = !hasText && parts.every(p => ['image', 'video'].includes(p.type) || (p.type === 'text' && p.text.trim() === ''))
-  /** 纯合并转发消息：卡片自带底色/边框，气泡像纯媒体一样去掉背景与内边距 */
-  const isForwardOnly = parts.some(p => p.type === 'forward') && parts.every(p => p.type === 'forward' || (p.type === 'text' && p.text.trim() === ''))
+  /** 纯卡片消息（JSON 卡片只能单独发送）：卡片自带底色/边框，气泡像纯媒体一样去掉背景与内边距 */
+  const isCardOnly = parts.some(p => p.type === 'json') && parts.every(p => p.type === 'json' || (p.type === 'text' && p.text.trim() === ''))
 
   /** 点击引用块跳转到原消息并短暂高亮 */
   const jumpToMessage = (messageId: string) => {
@@ -447,8 +431,8 @@ const MessageItemInner: React.FC<MessageItemProps> = ({ message, isMe, groupStar
           return <MessageFace key={idx} id={part.id} />
         case 'reply':
           return renderReply(part, idx)
-        case 'forward':
-          return <MessageForward key={idx} resId={part.id} />
+        case 'json':
+          return <MessageJson key={idx} data={part.data} />
         case 'markdown':
           return <MessageMarkdown key={idx} content={part.content} isMe={isMe} message={message} />
         case 'buttons':
@@ -456,7 +440,8 @@ const MessageItemInner: React.FC<MessageItemProps> = ({ message, isMe, groupStar
         case 'other':
           return <span key={idx} className='opacity-50'>{part.text || '[暂不支持的消息]'}</span>
         default:
-          return null
+          // 未知类型（如老库行里已废弃的 forward 元素）：通用兜底，防空气泡
+          return <span key={idx} className='opacity-50'>[暂不支持的消息]</span>
       }
     })
   }
@@ -498,7 +483,6 @@ const MessageItemInner: React.FC<MessageItemProps> = ({ message, isMe, groupStar
   return (
     <div
       data-message-id={message.messageId}
-      onContextMenu={(e) => openMenu(e, 'message')}
       className={cn(
         'flex items-start gap-2.5 -mx-2 px-2 rounded-lg hover:bg-qq-hover transition-colors',
         isMe ? 'flex-row-reverse' : 'flex-row',
@@ -532,10 +516,11 @@ const MessageItemInner: React.FC<MessageItemProps> = ({ message, isMe, groupStar
         <div className={cn('flex items-end gap-1.5 max-w-full', isMe && 'flex-row-reverse')}>
           <div
             title={formatFullTime(message.time)}
+            onContextMenu={(e) => openMenu(e, 'message')}
             className={cn(
               'bubble min-w-0 max-w-full text-[14px] leading-[1.6] break-words',
               message.recalled && 'opacity-60 border border-qq-badge/60',
-              isPureMedia || isForwardOnly
+              isPureMedia || isCardOnly
                 ? 'overflow-hidden rounded-xl'
                 : cn(
                   'px-3 py-[7px]',
@@ -560,7 +545,7 @@ const MessageItemInner: React.FC<MessageItemProps> = ({ message, isMe, groupStar
           <MessageReactions
             reactions={message.reactions}
             myFaceIds={new Set(message.reactions.map(r => r.faceId).filter(id => hasReacted(message, id)))}
-            onReact={isQQProtocol(currentBot?.protocol) && !message.system
+            onReact={isQQProtocol(currentBot) && !message.system
               ? (faceId) => void reactMessage(message, faceId)
               : undefined}
           />

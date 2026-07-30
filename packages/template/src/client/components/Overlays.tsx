@@ -2,12 +2,12 @@ import React from 'react'
 import { AtSign, Hand, UserMinus, Copy, Reply, Undo2, Download, ImageIcon, Braces, X, SmilePlus } from 'lucide-react'
 import { useChat } from '../state/chat'
 import { useUi } from '../state/ui'
-import { pokeGroupMember, pokeFriend, kickGroupMember } from '../api'
-import { resolveMediaSrc, downloadFile, copyImageToClipboard, copyTextToClipboard, isQQProtocol } from '../utils'
+import { pokeGroupMember, pokeFriend, kickGroupMember, getRawMessage } from '../api'
+import { resolveMediaSrc, downloadFile, copyImageToClipboard, copyTextToClipboard, isQQProtocol, visibleElements } from '../utils'
 import { MessageElement } from '../../core/types'
 import { ContextMenu, ContextMenuItem } from './ContextMenu'
 import { ReactionPicker } from './ReactionPicker'
-import { Button, Modal } from '@heroui/react'
+import { Button, Modal, Spinner } from '@heroui/react'
 
 export const Overlays: React.FC = () => {
   const {
@@ -36,6 +36,13 @@ export const Overlays: React.FC = () => {
       .catch(() => setToast({ message: '复制失败', type: 'error' }))
   }
 
+  /** 复制图片链接（与「复制」互补：纯图消息的「复制」已能复制图片本体） */
+  const handleCopyImageUrl = (file: string) => {
+    copyTextToClipboard(resolveMediaSrc(file))
+      .then(() => setToast({ message: '已复制图片链接', type: 'success' }))
+      .catch(() => setToast({ message: '复制失败', type: 'error' }))
+  }
+
   const buildMenuItems = (): ContextMenuItem[] => {
     if (!contextMenu || !currentBot) return []
     const { kind } = contextMenu
@@ -45,9 +52,9 @@ export const Overlays: React.FC = () => {
       const file = contextMenu.file!
       return [
         {
-          label: '复制图片',
+          label: '复制图片链接',
           icon: <Copy className='w-4 h-4' />,
-          onClick: () => handleCopyImage(file)
+          onClick: () => handleCopyImageUrl(file)
         },
         {
           label: '下载图片',
@@ -154,9 +161,9 @@ export const Overlays: React.FC = () => {
         label: '复制',
         icon: <Copy className='w-4 h-4' />,
         onClick: () => {
-          const text = msg.elements
-            .filter(e => e.type === 'text')
-            .map(e => (e as { type: 'text', text: string }).text)
+          // 复制原文：文本段 + markdown 段原文（NC markdown 的兜底文本经 visibleElements 过滤，不会重复）
+          const text = visibleElements(msg.elements)
+            .map(e => e.type === 'text' ? e.text : e.type === 'markdown' ? e.content : '')
             .join('')
           // 纯图片无文本的消息，「复制」直接复制图片
           if (!text) {
@@ -180,18 +187,24 @@ export const Overlays: React.FC = () => {
       {
         label: '原始事件',
         icon: <Braces className='w-4 h-4' />,
-        onClick: () => setRawMessage(msg)
+        onClick: () => {
+          // 按 msgid 拉协议端原始消息展示（面板内的 DTO 可能已经过渲染层重组，不作数）
+          setRawMessage({})
+          getRawMessage(msg.selfId, msg.scene, msg.peer, msg.messageId)
+            .then(data => setRawMessage({ data }))
+            .catch(err => setRawMessage({ error: err instanceof Error ? err.message : '获取原始消息失败' }))
+        }
       }
     ]
     if (imageEl) {
       items.push({
-        label: '复制图片',
+        label: '复制图片链接',
         icon: <ImageIcon className='w-4 h-4' />,
-        onClick: () => handleCopyImage(imageEl.file)
+        onClick: () => handleCopyImageUrl(imageEl.file)
       })
     }
     // 贴表情（QQ 表情回应）：仅 QQ 协议（NapCat/Lagrange 等 OneBot 实现），系统消息不可贴
-    if (isQQProtocol(currentBot.protocol) && !msg.system) {
+    if (isQQProtocol(currentBot) && !msg.system) {
       items.push({
         label: '贴表情',
         icon: <SmilePlus className='w-4 h-4' />,
@@ -244,7 +257,7 @@ export const Overlays: React.FC = () => {
         />
       )}
 
-      {/* 原始事件浮层：展示消息对象 JSON，可一键复制 */}
+      {/* 原始事件浮层：按 msgid 拉取的协议端原始消息 JSON，可一键复制 */}
       {rawMessage && (
         <div
           className='fixed inset-0 z-[300] bg-black/40 flex items-center justify-center p-4 animate-in fade-in duration-200'
@@ -258,17 +271,19 @@ export const Overlays: React.FC = () => {
             <div className='flex items-center justify-between px-4 py-3 border-b border-qq-border/40 shrink-0'>
               <span className='text-[14px] font-medium'>原始事件</span>
               <div className='flex items-center gap-1'>
-                <button
-                  onClick={() => {
-                    copyTextToClipboard(JSON.stringify(rawMessage, null, 2))
-                      .then(() => setToast({ message: '已复制', type: 'success' }))
-                      .catch(() => setToast({ message: '复制失败', type: 'error' }))
-                  }}
-                  className='p-1.5 rounded-full hover:bg-qq-hover transition-colors text-qq-text-secondary'
-                  title='复制 JSON'
-                >
-                  <Copy className='w-4 h-4' />
-                </button>
+                {rawMessage.data !== undefined && (
+                  <button
+                    onClick={() => {
+                      copyTextToClipboard(JSON.stringify(rawMessage.data, null, 2))
+                        .then(() => setToast({ message: '已复制', type: 'success' }))
+                        .catch(() => setToast({ message: '复制失败', type: 'error' }))
+                    }}
+                    className='p-1.5 rounded-full hover:bg-qq-hover transition-colors text-qq-text-secondary'
+                    title='复制 JSON'
+                  >
+                    <Copy className='w-4 h-4' />
+                  </button>
+                )}
                 <button
                   onClick={() => setRawMessage(null)}
                   className='p-1.5 rounded-full hover:bg-qq-hover transition-colors text-qq-text-secondary'
@@ -278,9 +293,19 @@ export const Overlays: React.FC = () => {
                 </button>
               </div>
             </div>
-            <pre className='flex-1 overflow-auto px-4 py-3 text-[12px] leading-relaxed font-mono whitespace-pre-wrap break-all select-text'>
-              {JSON.stringify(rawMessage, null, 2)}
-            </pre>
+            {rawMessage.error
+              ? <div className='flex-1 flex items-center justify-center py-10 text-[13px] text-qq-badge'>{rawMessage.error}</div>
+              : rawMessage.data === undefined
+                ? (
+                  <div className='flex-1 flex items-center justify-center py-10'>
+                    <Spinner />
+                  </div>
+                  )
+                : (
+                  <pre className='flex-1 overflow-auto px-4 py-3 text-[12px] leading-relaxed font-mono whitespace-pre-wrap break-all select-text'>
+                    {JSON.stringify(rawMessage.data, null, 2)}
+                  </pre>
+                  )}
           </div>
         </div>
       )}

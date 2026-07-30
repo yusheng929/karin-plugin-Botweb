@@ -20,7 +20,8 @@ const Root: React.FC = () => {
 
   return (
     <>
-      <Toast.Provider placement='top' />
+      {/* 层级必须高于面板内所有浮层（原始事件等 z-[300]），否则浮层上的操作提示会沉到浮层下 */}
+      <Toast.Provider placement='top' className='z-[400]' />
       {authed
         ? (
           <UiProvider>

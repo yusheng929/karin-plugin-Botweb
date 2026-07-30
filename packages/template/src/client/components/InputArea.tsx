@@ -39,7 +39,7 @@ export const InputArea: React.FC = () => {
 
   const isGroup = currentConversation?.scene === 'group'
   /** 当前 bot 为 QQ 协议实现时支持发送 QQ 小黄脸 */
-  const isQQ = isQQProtocol(currentBot?.protocol)
+  const isQQ = isQQProtocol(currentBot)
 
   // 输入内容（文本/表情/内联图片）为空时禁用
   const isDisabled = !currentConversation || isEmpty

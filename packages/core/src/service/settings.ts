@@ -15,16 +15,14 @@ const QQ_PROTOCOLS = ['icqq', 'gocq-http', 'napcat', 'oicq', 'llonebot', 'lagran
 const PROFILE_CACHE_MODES: ProfileCacheMode[] = ['all', 'non-qq', 'off']
 
 const DEFAULT_SETTINGS: BotWebSettings = {
-  profileCacheMode: 'non-qq',
-  messageStore: true,
-  messageStoreBots: []
+  profileCacheMode: 'non-qq'
 }
 
 const file = () => path.join(dir.dataDir, 'settings.json')
 
 let cache: BotWebSettings | null = null
 
-/** 读盘（带默认值归并，文件损坏时回退默认） */
+/** 读盘（带默认值归并，文件损坏时回退默认；已废弃字段自动忽略） */
 const load = (): BotWebSettings => {
   if (cache) return cache
   try {
@@ -32,11 +30,7 @@ const load = (): BotWebSettings => {
     cache = {
       profileCacheMode: PROFILE_CACHE_MODES.includes(raw.profileCacheMode as ProfileCacheMode)
         ? raw.profileCacheMode as ProfileCacheMode
-        : DEFAULT_SETTINGS.profileCacheMode,
-      messageStore: typeof raw.messageStore === 'boolean' ? raw.messageStore : DEFAULT_SETTINGS.messageStore,
-      messageStoreBots: Array.isArray(raw.messageStoreBots)
-        ? raw.messageStoreBots.filter(id => typeof id === 'string')
-        : [...DEFAULT_SETTINGS.messageStoreBots]
+        : DEFAULT_SETTINGS.profileCacheMode
     }
   } catch {
     cache = { ...DEFAULT_SETTINGS }
@@ -46,8 +40,7 @@ const load = (): BotWebSettings => {
 
 export const SettingsService = {
   get (): BotWebSettings {
-    const current = load()
-    return { ...current, messageStoreBots: [...current.messageStoreBots] }
+    return { ...load() }
   },
 
   /** 更新并落盘（部分字段归并，非法值忽略） */
@@ -55,12 +48,6 @@ export const SettingsService = {
     const current = load()
     if (patch.profileCacheMode && PROFILE_CACHE_MODES.includes(patch.profileCacheMode)) {
       current.profileCacheMode = patch.profileCacheMode
-    }
-    if (typeof patch.messageStore === 'boolean') {
-      current.messageStore = patch.messageStore
-    }
-    if (Array.isArray(patch.messageStoreBots)) {
-      current.messageStoreBots = patch.messageStoreBots.filter(id => typeof id === 'string')
     }
     try {
       fs.mkdirSync(dir.dataDir, { recursive: true })
@@ -80,14 +67,5 @@ export const SettingsService = {
     if (mode === 'all') return true
     if (mode === 'off') return false
     return !QQ_PROTOCOLS.includes(protocol)
-  },
-
-  /**
-   * 该 bot 的消息是否落库（messages 表）：
-   * 全局开关关闭时所有 bot 都不存（即使单独开启）；全局开启时也仅存单独开启的 bot
-   */
-  shouldStoreMessage (selfId: string): boolean {
-    const current = load()
-    return current.messageStore && current.messageStoreBots.includes(selfId)
   }
 }

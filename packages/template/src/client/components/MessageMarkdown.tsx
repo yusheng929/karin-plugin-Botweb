@@ -37,11 +37,14 @@ const preprocessDiscord = (s: string): string => {
     .replace(/^-#[ \t]+(.+)$/gm, '<span class="md-subtext">$1</span>')
 }
 
+/** QQ 方言：客户端对「#标题」（# 后无空格）也按标题渲染，补齐空格对齐 CommonMark（1-6 个 #，后跟非 # 非空白） */
+const preprocessQQ = (s: string): string => s.replace(/^(#{1,6})(?![#\s])/gm, '$1 ')
+
 const preprocess = (content: string, family: MdFamily): string => {
   const escaped = escapeHtml(content)
   if (family === 'telegram') return preprocessTelegram(escaped)
   if (family === 'discord') return preprocessDiscord(escaped)
-  return escaped
+  return preprocessQQ(escaped)
 }
 
 /** 链接新窗口打开；图片防盗链 + base64:// 归一（与消息图片一致） */

@@ -8,8 +8,10 @@ export interface BotInfo {
   selfId: string
   name: string
   avatar: string
-  /** 适配器协议实现（icqq/napcat/llonebot 等，据此做 QQ 平台适配） */
+  /** 适配器协议实现（icqq/napcat/llonebot 等；milky 为实现名如 Yogurt，不可枚举） */
   protocol: string
+  /** 适配器平台（qq/guild/custom 等，据此做 QQ 平台能力判定） */
+  platform: string
 }
 
 /** 好友列表项 */
@@ -54,10 +56,6 @@ export interface BotWebSettings {
    * all=统计全部 Bot；non-qq（默认）=仅统计非 QQ 协议 Bot；off=关闭统计
    */
   profileCacheMode: ProfileCacheMode
-  /** 全局消息存储总开关：关闭时所有 bot 都不存消息（即使单独开启的 bot 也不存） */
-  messageStore: boolean
-  /** 单独开启消息存储的 bot selfId 列表（仅在全局开关打开时生效，默认空=都不存） */
-  messageStoreBots: string[]
 }
 
 /** 消息元素（客户端与后端 DTO 共用，未知类型降级为 other） */
@@ -74,8 +72,8 @@ export type MessageElement =
   | { type: 'video', file: string, name?: string }
   /** 语音：file 为 url 或 base64 */
   | { type: 'record', file: string, name?: string }
-  /** 合并转发：id 为 resId，内容点击后经 GET /bots/:selfId/forward 拉取 */
-  | { type: 'forward', id: string }
+  /** JSON 卡片消息（小程序/分享卡片等，data 为原始 JSON 字符串，前端美化展示） */
+  | { type: 'json', data: string }
   /** markdown 原文（前端按 bot 协议族渲染：QQ/Telegram/Discord 语法各异） */
   | { type: 'markdown', content: string }
   /** 按钮/键盘（QQ 按钮，link 可跳转，其余仅展示不可触发） */
@@ -93,15 +91,6 @@ export interface ButtonItem {
   show?: string
   /** QQ 按钮样式（0 灰线框 / 1 蓝线框 / 3 红字等） */
   style?: number
-}
-
-/** 合并转发内容项（与 core 的 service/dto.ts 保持一致） */
-export interface ForwardMessageItem {
-  senderId: string
-  senderName: string
-  /** 秒级时间戳 */
-  time: number
-  elements: MessageElement[]
 }
 
 /** 会话场景 */
@@ -137,20 +126,13 @@ export interface ChatMessage {
   recalled?: boolean
 }
 
-/** 会话摘要（后端按 bot 聚合：每个有本地消息的会话的最后一条） */
-export interface ConversationSummary {
-  scene: ChatScene
-  peer: string
-  lastMessage: ChatMessage
-}
-
 /** 分页拉取历史消息的响应 */
 export interface MessagePage {
   /** 本页消息（时间升序） */
   messages: ChatMessage[]
   /** 是否还有更早的消息 */
   hasMore: boolean
-  /** 下一页游标：协议端历史页为 messageId，本地 db 页为 sqlite rowid 字符串；无更多时为 null */
+  /** 下一页游标：上一页最旧一条的 messageId；无更多时为 null */
   cursor: string | null
 }
 

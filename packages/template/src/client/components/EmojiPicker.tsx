@@ -124,7 +124,7 @@ export const EmojiPicker: React.FC<EmojiPickerProps> = ({ onSelect, onSelectFace
       <div
         // preventDefault：避免点击面板时输入框失焦丢失光标位置
         onMouseDown={(e) => e.preventDefault()}
-        className='absolute bottom-full mb-2 left-3 w-80 max-h-72 overflow-hidden rounded-xl shadow-2xl glass z-50 animate-in fade-in slide-in-from-bottom-2 duration-150 flex flex-col'
+        className='absolute bottom-full mb-2 left-3 w-80 max-h-72 overflow-hidden rounded-xl shadow-2xl bg-qq-bg border border-qq-border z-50 animate-in fade-in slide-in-from-bottom-2 duration-150 flex flex-col'
       >
         {/* 横向分类条：Emoji 在前，QQ 协议 bot 追加 QFace */}
         <div className='flex items-center gap-1 px-2 py-1.5 border-b border-qq-border shrink-0 overflow-x-auto no-scrollbar'>
@@ -155,7 +155,7 @@ export const EmojiPicker: React.FC<EmojiPickerProps> = ({ onSelect, onSelectFace
         <div className='flex-1 overflow-y-auto'>
           {tab === 'qqface' && onSelectFace
             ? (
-              <div className='grid grid-cols-8 p-2'>
+              <div className='grid grid-cols-8 gap-0.5 p-2'>
                 {(faceIds || FALLBACK_FACE_IDS).map(id => (
                   <FaceCell key={id} id={id} onSelect={onSelectFace} />
                 ))}
@@ -166,7 +166,7 @@ export const EmojiPicker: React.FC<EmojiPickerProps> = ({ onSelect, onSelectFace
                 <div className='px-2 py-1 text-xs text-qq-text-tertiary'>
                   {group.name}
                 </div>
-                <div className='grid grid-cols-8'>
+                <div className='grid grid-cols-8 gap-0.5'>
                   {group.emojis.map(emoji => (
                     <button
                       key={emoji}

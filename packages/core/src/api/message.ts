@@ -1,6 +1,6 @@
 /**
- * 消息相关接口
- * 历史消息由 GET /bots/:selfId/messages 提供（本地 sqlite 持久化，见 service/db.ts 的 messageDb）
+ * 消息相关接口（发送/撤回/表情回应）
+ * 历史消息由 GET /bots/:selfId/history 提供（协议端 getHistoryMsg，消息不落库）
  */
 import { MessageService } from '@/service'
 import { ReactionMessageType } from '@/service/types'

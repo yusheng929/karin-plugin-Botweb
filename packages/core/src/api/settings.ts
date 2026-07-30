@@ -14,9 +14,7 @@ router.get('/settings', (_req, res) => {
 router.post('/settings', (req, res) => {
   const body = (req.body ?? {}) as Partial<BotWebSettings>
   res.json(ok(SettingsService.update({
-    profileCacheMode: body.profileCacheMode,
-    messageStore: body.messageStore,
-    messageStoreBots: body.messageStoreBots
+    profileCacheMode: body.profileCacheMode
   })))
 })
 

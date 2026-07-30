@@ -41,11 +41,19 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, items, onClose }
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
+    // 左键点任意处关闭：捕获阶段 + contains 判定——群资料面板等区域对 click 做了 stopPropagation，
+    // 冒泡阶段的 window click 到不了，必须用 mousedown 捕获（菜单自身点击经 contains 豁免）
+    const onMouseDown = (e: MouseEvent) => {
+      if (menuRef.current?.contains(e.target as Node)) return
+      onClose()
+    }
+    window.addEventListener('mousedown', onMouseDown, true)
     window.addEventListener('click', onClose)
     window.addEventListener('blur', onClose)
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('scroll', onClose, true)
     return () => {
+      window.removeEventListener('mousedown', onMouseDown, true)
       window.removeEventListener('click', onClose)
       window.removeEventListener('blur', onClose)
       window.removeEventListener('keydown', onKeyDown)
@@ -58,7 +66,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, items, onClose }
   return (
     <div
       ref={menuRef}
-      className='fixed w-44 glass rounded-xl shadow-2xl p-1 animate-in fade-in zoom-in-95 duration-100 z-[400]'
+      className='fixed w-44 bg-qq-bg border border-qq-border rounded-xl shadow-2xl p-1 flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100 z-[400]'
       style={{ left: pos.left, top: pos.top }}
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}

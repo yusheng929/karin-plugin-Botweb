@@ -208,9 +208,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [messageMap, dispatchMessages] = useReducer(messageMapReducer, {})
   const [currentKey, setCurrentKey] = useState<string | null>(null)
   const [unreadByBot, dispatchUnread] = useReducer(unreadReducer, {})
-  /** 各会话的历史分页状态：loaded=首页已拉过，hasMore=还有更早，cursor=协议端历史游标（最旧一条 messageId），
-   *  localCursor=本地 db 兜底游标（rowid 字符串），source=当前生效数据源（protocol=协议端历史 / local=本地 db 兜底） */
-  const [historyMap, setHistoryMap] = useState<Record<string, { loaded: boolean, hasMore: boolean, cursor: string | null, localCursor: string | null, source: 'protocol' | 'local' | null }>>({})
+  /** 各会话的历史分页状态：loaded=首页已拉过，hasMore=还有更早，cursor=协议端历史游标（最旧一条 messageId） */
+  const [historyMap, setHistoryMap] = useState<Record<string, { loaded: boolean, hasMore: boolean, cursor: string | null }>>({})
   const [groupMembers, setGroupMembers] = useState<GroupMemberItem[]>([])
   /** 用户头像表：`${selfId}:${userId}` -> url（来源：profiles 推送增量 + avatars 接口补拉，均为后端协议端 getAvatarUrl） */
   const [avatarMap, setAvatarMap] = useState<Record<string, string>>({})
@@ -259,32 +258,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [])
 
   /** 拉取指定会话的更早一页历史消息（游标自动推进，幂等防并发；首页 before=null 拉最新一页）。
-   *  双源分页：优先走协议端 getHistoryMsg 懒加载，协议端不支持时永久降级本地 db 兜底 */
+   *  消息不落库，唯一数据源是协议端 getHistoryMsg；拉取失败直接抛出由调用方弹 toast 提示重试 */
   const fetchHistoryPage = useCallback(async (selfId: string, scene: ChatScene, peer: string) => {
     const key = fullKey(selfId, scene, peer)
     if (historyLoadingRef.current.has(key)) return
     historyLoadingRef.current.add(key)
     try {
       const h = historyMapRef.current[key]
-      if (h?.source !== 'local') {
-        try {
-          const page = await api.getHistory(selfId, scene, peer, h?.cursor ?? null)
-          dispatchMessages({ type: 'merge', entries: { [key]: page.messages } })
-          setHistoryMap(prev => ({ ...prev, [key]: { loaded: true, hasMore: page.hasMore, cursor: page.cursor, localCursor: prev[key]?.localCursor ?? null, source: 'protocol' } }))
-        } catch (err) {
-          // 此前协议端成功过，视为临时失败：直接抛出由 MessageList 弹 toast 让用户重试，不降级
-          if (h?.source === 'protocol') throw err
-          // 协议端不支持 getHistoryMsg（如 qqbot）：永久降级本地 db 兜底
-          const page = await api.getMessages(selfId, scene, peer, h?.localCursor ?? null)
-          dispatchMessages({ type: 'merge', entries: { [key]: page.messages } })
-          setHistoryMap(prev => ({ ...prev, [key]: { loaded: true, hasMore: page.hasMore, cursor: prev[key]?.cursor ?? null, localCursor: page.cursor, source: 'local' } }))
-        }
-      } else {
-        // 已降级本地 db：继续按 rowid 游标拉取
-        const page = await api.getMessages(selfId, scene, peer, h.localCursor ?? null)
-        dispatchMessages({ type: 'merge', entries: { [key]: page.messages } })
-        setHistoryMap(prev => ({ ...prev, [key]: { loaded: true, hasMore: page.hasMore, cursor: prev[key]?.cursor ?? null, localCursor: page.cursor, source: 'local' } }))
-      }
+      const page = await api.getHistory(selfId, scene, peer, h?.cursor ?? null)
+      dispatchMessages({ type: 'merge', entries: { [key]: page.messages } })
+      setHistoryMap(prev => ({ ...prev, [key]: { loaded: true, hasMore: page.hasMore, cursor: page.cursor } }))
     } finally {
       historyLoadingRef.current.delete(key)
     }
@@ -323,19 +306,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
         dispatchUnread({ type: 'merge', entries: unreadEntries })
-        // 拉取各 bot 的会话摘要（每个会话的最后一条消息，做会话列表预览/排序）；
-        // 历史消息不进内存，打开会话后按需分页拉取；单个 bot 失败不影响其他
-        for (const bot of list) {
-          api.getConversations(bot.selfId)
-            .then(summaries => {
-              const entries: MessageMapState = {}
-              for (const s of summaries) {
-                entries[fullKey(bot.selfId, s.scene, s.peer)] = [s.lastMessage]
-              }
-              dispatchMessages({ type: 'merge', entries })
-            })
-            .catch(err => setToast({ message: `拉取会话摘要失败: ${err.message}`, type: 'error' }))
-        }
       })
       .catch(err => setToast({ message: `获取 Bot 列表失败: ${err.message}`, type: 'error' }))
   }, [setToast])
@@ -355,6 +325,25 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       .then(([friendList, groupList]) => {
         setFriends(friendList)
         setGroups(groupList)
+        // 会话列表预览/排序用：并发受限地为每个会话懒拉最新一条消息
+        // （消息不落库，列表初态无预览，拉到位后按真实最新时间自动重排；失败静默）
+        const targets = [
+          ...friendList.map(f => ({ scene: 'friend' as ChatScene, peer: f.userId })),
+          ...groupList.map(g => ({ scene: 'group' as ChatScene, peer: g.groupId }))
+        ]
+        let idx = 0
+        const worker = async () => {
+          while (idx < targets.length) {
+            const t = targets[idx++]
+            try {
+              const page = await api.getHistory(currentBotId, t.scene, t.peer, null, 1)
+              if (page.messages.length > 0) {
+                dispatchMessages({ type: 'merge', entries: { [fullKey(currentBotId, t.scene, t.peer)]: page.messages } })
+              }
+            } catch { /* 协议端不支持（如 milky 好友场景）时无预览 */ }
+          }
+        }
+        for (let i = 0; i < Math.min(4, targets.length); i++) void worker()
       })
       .catch(err => setToast({ message: `获取联系人失败: ${err.message}`, type: 'error' }))
   }, [currentBotId, setToast, setReplyTo, setContextMenu])

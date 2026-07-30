@@ -8,13 +8,19 @@ export function cn (...inputs: ClassValue[]) {
 }
 
 /**
- * QQ 协议实现（onebot 系协议端，face 元素为 QQ 小黄脸数字 id）：
- * qqbot 为官方机器人 API，不支持经典小黄脸，不计入
+ * QQ 平台能力判定（经典小黄脸/表情回应/贴表情等 QQ NT 特性）。
+ * 优先看 platform === 'qq' 且排除 qqbot（官方机器人 API 不支持这些特性）；
+ * milky 的 protocol 是实现名（Yogurt 等）无法枚举，所以不能再按协议名白名单判定。
+ * platform 缺失（旧后端）时回退到协议名白名单
  */
 const QQ_FACE_PROTOCOLS = ['icqq', 'gocq-http', 'napcat', 'oicq', 'llonebot', 'lagrange']
 
-/** 当前 bot 是否为 QQ 协议实现（决定能否发送 qqface / 表情面板是否展示 qqface） */
-export const isQQProtocol = (protocol?: string) => !!protocol && QQ_FACE_PROTOCOLS.includes(protocol)
+/** 当前 bot 是否具备 QQ NT 特性（决定能否发 qqface / 表情面板 QFace 页签 / 表情回应） */
+export const isQQProtocol = (bot?: { protocol?: string, platform?: string } | null) => {
+  if (!bot) return false
+  if (bot.platform) return bot.platform === 'qq' && bot.protocol !== 'qqbot'
+  return !!bot.protocol && QQ_FACE_PROTOCOLS.includes(bot.protocol)
+}
 
 /** QQ 小黄脸本地图源（core 托管，见 core/scripts/download-faces.mjs） */
 export const qqFaceGif = (id: number) => `${BASE}/faces/gif/s${id}.gif`
@@ -113,10 +119,18 @@ export const copyImageToClipboard = async (file: string): Promise<'image' | 'url
   }
 }
 
+/**
+ * NapCat 等实现的 markdown 消息会额外携带一段纯文本兜底（markdown 的明文形态），
+ * 特征为紧跟在 markdown 元素之后的 text 元素；直接渲染会双重显示。
+ * 渲染/摘要/复制统一经此过滤（仅展示层过滤，原始数据不动，「原始事件」仍可见完整元素）
+ */
+export const visibleElements = (elements: MessageElement[]): MessageElement[] =>
+  elements.filter((el, i) => !(el.type === 'text' && i > 0 && elements[i - 1].type === 'markdown'))
+
 export const getMessageSummary = (elements?: MessageElement[]): string => {
   if (!elements || elements.length === 0) return '[暂无消息]'
 
-  return elements.map((p) => {
+  return visibleElements(elements).map((p) => {
     switch (p.type) {
       case 'text': return p.text
       case 'image': return '[图片]'
@@ -126,7 +140,7 @@ export const getMessageSummary = (elements?: MessageElement[]): string => {
       case 'file': return `[文件]${p.name || ''}`
       case 'video': return '[视频]'
       case 'record': return '[语音]'
-      case 'forward': return '[合并转发]'
+      case 'json': return '[JSON]'
       case 'markdown': return p.content
       case 'buttons': return '[按钮]'
       case 'other': return p.text || '[暂不支持的消息]'

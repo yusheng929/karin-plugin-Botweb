@@ -35,6 +35,12 @@
   --color-qq-pill-text: var(--qq-pill-text);
 }
 
+/* 全局字体：华为 HarmonyOS Sans SC（CDN 分包按需加载，见 index.html），回退系统中文字体；
+   emoji 统一用 Twemoji（webfont，全平台同一样式，不回退系统 emoji/Noto），系统原生 emoji 兜底 */
+@theme {
+  --font-sans: "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif, "Twemoji", "Apple Color Emoji", "Segoe UI Emoji";
+}
+
 /*
  * Mac 版 QQ（NT）亮色主题：
  * 浅灰功能栏/白色会话栏 + 浅灰聊天底、QQ 品牌蓝 #0099ff、
@@ -112,7 +118,7 @@ body,
 
 body {
   overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", Arial, sans-serif, "Twemoji", "Apple Color Emoji", "Segoe UI Emoji";
   background-color: var(--qq-chat-bg);
   color: var(--qq-text);
   -webkit-font-smoothing: antialiased;

@@ -1,14 +1,14 @@
 /**
  * 插件私有 sqlite 存储（@karinjs/sqlite3：karin 同款 napi 预编译 sqlite3，支持 node>=18）。
  * db 文件位于 karin 运行时插件目录 @karinjs/karin-plugin-botweb/data/botweb.db（不在仓库/插件包内）。
- * 三张表：profiles（好友/群/头像资料缓存）、members（群成员缓存）、messages（聊天消息持久化，前端按会话分页拉取）。
+ * 两张表：profiles（好友/群/头像资料缓存）、members（群成员缓存）。
+ * 注意：聊天消息不落库——历史消息一律走协议端 getHistoryMsg 拉取（见 service/bot.ts 的 history）。
  */
 import path from 'node:path'
 import fs from 'node:fs'
 import sqlite3 from '@karinjs/sqlite3'
 import { logger } from 'node-karin'
 import { dir } from '@/dir'
-import type { ChatMessage, ConversationSummary, MessageElement, MessagePage, ReactionItem } from './dto'
 
 /** 资料行（profiles 表，kind 区分数据语义） */
 export interface ProfileRow {
@@ -83,24 +83,6 @@ const init = (): Promise<Sqlite> => {
         updated_at INTEGER NOT NULL,
         PRIMARY KEY (self_id, group_id, user_id)
       )`)
-      await db.run(`CREATE TABLE IF NOT EXISTS messages (
-        self_id     TEXT NOT NULL,
-        scene       TEXT NOT NULL CHECK (scene IN ('friend', 'group')),
-        peer        TEXT NOT NULL,
-        message_id  TEXT NOT NULL,
-        seq         INTEGER NOT NULL DEFAULT 0,
-        sender_id   TEXT NOT NULL,
-        sender_name TEXT NOT NULL DEFAULT '',
-        time        INTEGER NOT NULL,
-        elements    TEXT NOT NULL,
-        recalled    INTEGER NOT NULL DEFAULT 0,
-        PRIMARY KEY (self_id, scene, peer, message_id)
-      )`)
-      // 老库迁移：补 reactions 列（QQ 表情回应聚合，JSON: ReactionItem[]，空串=无）
-      const msgCols = await db.all<{ name: string }>('PRAGMA table_info(messages)')
-      if (!msgCols.some(c => c.name === 'reactions')) {
-        await db.run(`ALTER TABLE messages ADD COLUMN reactions TEXT NOT NULL DEFAULT ''`)
-      }
       // 老库迁移：members 补 title 列（群内专属头衔，空串=无）
       const memberCols = await db.all<{ name: string }>('PRAGMA table_info(members)')
       if (!memberCols.some(c => c.name === 'title')) {
@@ -199,196 +181,5 @@ export const memberDb = {
   async list (selfId: string, groupId: string): Promise<MemberRow[]> {
     const db = await init()
     return db.all<MemberRow>('SELECT * FROM members WHERE self_id = ? AND group_id = ?', [selfId, groupId])
-  }
-}
-
-/** 消息行（messages 表） */
-interface MessageRow {
-  self_id: string
-  scene: 'friend' | 'group'
-  peer: string
-  message_id: string
-  seq: number
-  sender_id: string
-  sender_name: string
-  /** 毫秒时间戳 */
-  time: number
-  /** MessageElement[] 的 JSON */
-  elements: string
-  recalled: number
-  /** ReactionItem[] 的 JSON（空串=无表情回应） */
-  reactions: string
-}
-
-const MEDIA_PLACEHOLDER: Record<string, string> = {
-  image: '[图片]',
-  file: '[文件]',
-  video: '[视频]',
-  record: '[语音]'
-}
-
-/**
- * 入库前瘦身：本地 base64 媒体（data: 开头）体积太大，替换为占位文本防止撑爆 db；
- * 网络 url 原样保留
- */
-const sanitizeElements = (elements: MessageElement[]): MessageElement[] =>
-  elements.map(el =>
-    'file' in el && el.file.startsWith('data:') && MEDIA_PLACEHOLDER[el.type]
-      ? { type: 'other' as const, text: MEDIA_PLACEHOLDER[el.type] }
-      : el
-  )
-
-/** 时间戳归一为毫秒（karin 事件是秒级，部分接口返回毫秒：>1e12 视为毫秒） */
-const toMillis = (time: number) => (time > 1e12 ? time : time * 1000)
-
-/**
- * 应用一次表情回应增减（isSet 加 / 取消减，count 缺省按 1，减到 0 移除）。
- * 与前端 chat.tsx reducer 的 reaction 逻辑保持一致
- */
-const applyReactionDelta = (list: ReactionItem[], faceId: number, count: number, isSet: boolean): ReactionItem[] => {
-  const delta = isSet ? Math.max(1, count) : -Math.max(1, count)
-  const idx = list.findIndex(r => r.faceId === faceId)
-  if (idx === -1) return delta > 0 ? [...list, { faceId, count: delta }] : list
-  const next = [...list]
-  const merged = next[idx].count + delta
-  if (merged <= 0) next.splice(idx, 1)
-  else next[idx] = { faceId, count: merged }
-  return next
-}
-
-/** 消息行 -> ChatMessage（库存毫秒；ChatMessage 契约为秒级，前端统一经 toMillis() 归一，两种单位都兼容） */
-const toChatMessage = (row: MessageRow): ChatMessage => ({
-  messageId: row.message_id,
-  seq: row.seq,
-  selfId: row.self_id,
-  scene: row.scene,
-  peer: row.peer,
-  senderId: row.sender_id,
-  senderName: row.sender_name,
-  time: row.time,
-  elements: JSON.parse(row.elements) as MessageElement[],
-  reactions: row.reactions ? JSON.parse(row.reactions) as ReactionItem[] : undefined,
-  recalled: row.recalled === 1
-})
-
-export const messageDb = {
-  /**
-   * 写入一条消息（INSERT OR IGNORE 幂等：自己发的消息会被 send 接口与协议端回显各写一次，
-   * 后到者直接忽略；recalled 标记以先入库的行为准，撤回走 markRecalled 更新）
-   */
-  async insert (msg: ChatMessage): Promise<void> {
-    const db = await init()
-    await db.run(
-      `INSERT OR IGNORE INTO messages
-        (self_id, scene, peer, message_id, seq, sender_id, sender_name, time, elements, recalled)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
-      [
-        msg.selfId, msg.scene, msg.peer, msg.messageId, msg.seq,
-        msg.senderId, msg.senderName, toMillis(msg.time),
-        JSON.stringify(sanitizeElements(msg.elements))
-      ]
-    )
-  },
-
-  /** 标记消息已撤回（找不到行时静默忽略：可能是插件启用前的消息） */
-  async markRecalled (selfId: string, scene: ChatMessage['scene'], peer: string, messageId: string): Promise<void> {
-    const db = await init()
-    await db.run(
-      'UPDATE messages SET recalled = 1 WHERE self_id = ? AND scene = ? AND peer = ? AND message_id = ?',
-      [selfId, scene, peer, messageId]
-    )
-  },
-
-  /** 应用一次表情回应（找不到行时静默忽略：消息存储关闭或插件启用前的消息） */
-  async applyReaction (
-    selfId: string, scene: ChatMessage['scene'], peer: string, messageId: string,
-    faceId: number, count: number, isSet: boolean
-  ): Promise<void> {
-    const db = await init()
-    const row = await db.get<{ reactions: string }>(
-      'SELECT reactions FROM messages WHERE self_id = ? AND scene = ? AND peer = ? AND message_id = ?',
-      [selfId, scene, peer, messageId]
-    )
-    if (!row) return
-    const list: ReactionItem[] = row.reactions ? JSON.parse(row.reactions) : []
-    const next = applyReactionDelta(list, faceId, count, isSet)
-    await db.run(
-      'UPDATE messages SET reactions = ? WHERE self_id = ? AND scene = ? AND peer = ? AND message_id = ?',
-      [JSON.stringify(next), selfId, scene, peer, messageId]
-    )
-  },
-
-  /**
-   * 按 bot 聚合会话摘要：每个有本地消息的会话取最后一条（rowid 最大者，插入顺序即到达顺序）。
-   * 前端启动时拉取，用于会话列表预览/排序，历史消息进会话后按需分页拉取
-   */
-  async listConversations (selfId: string): Promise<ConversationSummary[]> {
-    const db = await init()
-    const rows = await db.all<MessageRow>(
-      `SELECT m.* FROM messages m
-       JOIN (
-         SELECT scene, peer, MAX(rowid) AS rid FROM messages WHERE self_id = ? GROUP BY scene, peer
-       ) t ON m.rowid = t.rid`,
-      [selfId]
-    )
-    return rows.map(row => ({ scene: row.scene, peer: row.peer, lastMessage: toChatMessage(row) }))
-  },
-
-  /**
-   * 按会话分页拉取历史消息（游标为 sqlite rowid 字符串，单调递增与到达顺序一致，避免 time 同毫秒撞车漏消息）：
-   * before 传上一页的 cursor（最旧一条的 rowid），返回时间升序的一页 + 是否还有更早 + 新游标
-   */
-  async listPage (selfId: string, scene: ChatMessage['scene'], peer: string, before: number | null, limit: number): Promise<MessagePage> {
-    const db = await init()
-    // 多取 1 条判断是否还有更早
-    const rows = await db.all<MessageRow & { rid: number }>(
-      `SELECT rowid AS rid, * FROM messages
-       WHERE self_id = ? AND scene = ? AND peer = ? AND (? IS NULL OR rowid < ?)
-       ORDER BY rowid DESC LIMIT ?`,
-      [selfId, scene, peer, before, before, limit + 1]
-    )
-    const hasMore = rows.length > limit
-    const page = rows.slice(0, limit)
-    return {
-      messages: page.map(toChatMessage).reverse(),
-      hasMore,
-      cursor: page.length > 0 ? String(page[page.length - 1].rid) : null
-    }
-  },
-
-  /** 批量查询一组 messageId 中哪些已在本地标记撤回（协议端历史页的撤回标记叠加用） */
-  async recalledIds (selfId: string, scene: ChatMessage['scene'], peer: string, ids: string[]): Promise<Set<string>> {
-    if (ids.length === 0) return new Set()
-    const db = await init()
-    const rows = await db.all<{ message_id: string }>(
-      `SELECT message_id FROM messages
-       WHERE self_id = ? AND scene = ? AND peer = ? AND recalled = 1
-         AND message_id IN (${ids.map(() => '?').join(',')})`,
-      [selfId, scene, peer, ...ids]
-    )
-    return new Set(rows.map(r => r.message_id))
-  },
-
-  /** 取时间范围内本地已标记撤回的消息（防撤回补洞：协议端历史里被撤掉的消息从本地补回） */
-  async recalledInRange (selfId: string, scene: ChatMessage['scene'], peer: string, startMs: number, endMs: number): Promise<ChatMessage[]> {
-    const db = await init()
-    const rows = await db.all<MessageRow>(
-      'SELECT * FROM messages WHERE self_id = ? AND scene = ? AND peer = ? AND recalled = 1 AND time BETWEEN ? AND ?',
-      [selfId, scene, peer, startMs, endMs]
-    )
-    return rows.map(toChatMessage)
-  },
-
-  /** 该会话本地最新一条协议端消息的 messageId（历史分页锚点用；排除 poke-、local- 前缀的本地合成消息） */
-  async latestMessageId (selfId: string, scene: ChatMessage['scene'], peer: string): Promise<string | null> {
-    const db = await init()
-    const row = await db.get<{ message_id: string }>(
-      `SELECT message_id FROM messages
-       WHERE self_id = ? AND scene = ? AND peer = ?
-         AND message_id NOT LIKE 'poke-%' AND message_id NOT LIKE 'local-%'
-       ORDER BY rowid DESC LIMIT 1`,
-      [selfId, scene, peer]
-    )
-    return row?.message_id ?? null
   }
 }

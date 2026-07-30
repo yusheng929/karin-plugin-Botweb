@@ -1,14 +1,12 @@
 import {
   ApiResult,
   BotInfo,
-  ForwardMessageItem,
   FriendItem,
   GroupItem,
   GroupMemberItem,
   MessageElement,
   ChatScene,
   ChatMessage,
-  ConversationSummary,
   MessagePage,
   UserAvatarItem,
   BotWebSettings,
@@ -45,34 +43,23 @@ export const getFriends = (selfId: string) =>
 export const getGroups = (selfId: string) =>
   request<GroupItem[]>(`/api/bots/${encodeURIComponent(selfId)}/groups`)
 
-/** 拉取该 bot 的会话摘要（每个有本地消息的会话的最后一条，用于会话列表预览/排序；历史消息进会话后分页拉取） */
-export const getConversations = (selfId: string) =>
-  request<ConversationSummary[]>(`/api/bots/${encodeURIComponent(selfId)}/conversations`)
-
-/** 分页拉取协议端历史消息（懒加载主数据源，后端叠加本地防撤回标记；before 传上一页 cursor 即最旧一条的 messageId） */
+/** 分页拉取协议端历史消息（唯一历史数据源；before 传上一页 cursor 即最旧一条的 messageId） */
 export const getHistory = (selfId: string, scene: ChatScene, peer: string, before: string | null, limit = 100) => {
   const params = new URLSearchParams({ scene, peer, limit: String(limit) })
   if (before !== null) params.set('before', before)
   return request<MessagePage>(`/api/bots/${encodeURIComponent(selfId)}/history?${params}`)
 }
 
-/** 分页拉取指定会话的本地 db 历史消息（协议端历史不可用时的降级兜底源，before 传上一页 cursor 即 sqlite rowid 字符串，时间升序） */
-export const getMessages = (selfId: string, scene: ChatScene, peer: string, before: string | null, limit = 100) => {
-  const params = new URLSearchParams({ scene, peer, limit: String(limit) })
-  if (before !== null) params.set('before', before)
-  return request<MessagePage>(`/api/bots/${encodeURIComponent(selfId)}/messages?${params}`)
-}
-
 export const getGroupMembers = (selfId: string, groupId: string) =>
   request<GroupMemberItem[]>(`/api/bots/${encodeURIComponent(selfId)}/groups/${encodeURIComponent(groupId)}/members`)
+
+/** 按 messageId 拉取协议端原始消息（「原始事件」浮层用，返回未经 DTO 转换的原始对象） */
+export const getRawMessage = (selfId: string, scene: ChatScene, peer: string, messageId: string) =>
+  request<unknown>(`/api/bots/${encodeURIComponent(selfId)}/message?scene=${scene}&peer=${encodeURIComponent(peer)}&messageId=${encodeURIComponent(messageId)}`)
 
 /** 批量获取用户头像（后端走协议端 getAvatarUrl + db 缓存，返回 userId -> url） */
 export const getAvatars = (selfId: string, ids: string[]) =>
   request<Record<string, string>>(`/api/bots/${encodeURIComponent(selfId)}/avatars?ids=${ids.map(encodeURIComponent).join(',')}`)
-
-/** 拉取合并转发消息内容（resId 来自 forward 元素，点击卡片时按需调用） */
-export const getForward = (selfId: string, resId: string) =>
-  request<ForwardMessageItem[]>(`/api/bots/${encodeURIComponent(selfId)}/forward?resId=${encodeURIComponent(resId)}`)
 
 export interface SendMessagePayload {
   selfId: string
