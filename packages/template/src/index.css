@@ -36,9 +36,9 @@
 }
 
 /* 全局字体：华为 HarmonyOS Sans SC（CDN 分包按需加载，见 index.html），回退系统中文字体；
-   emoji 统一用 Twemoji（webfont，全平台同一样式，不回退系统 emoji/Noto），系统原生 emoji 兜底 */
+   emoji 走 Apple 图片方案（见 client/emoji.tsx），字体栈里的系统 emoji 仅作未覆盖场景兜底 */
 @theme {
-  --font-sans: "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif, "Twemoji", "Apple Color Emoji", "Segoe UI Emoji";
+  --font-sans: "HarmonyOS Sans SC", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
 }
 
 /*
@@ -118,7 +118,7 @@ body,
 
 body {
   overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", Arial, sans-serif, "Twemoji", "Apple Color Emoji", "Segoe UI Emoji";
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
   background-color: var(--qq-chat-bg);
   color: var(--qq-text);
   -webkit-font-smoothing: antialiased;
@@ -128,12 +128,12 @@ body {
 /* macOS 红绿灯（装饰性，位于功能栏顶部） */
 .traffic-lights {
   display: flex;
-  gap: 8px;
+  gap: 7px;
 }
 
 .traffic-lights span {
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.15);
 }
@@ -225,6 +225,15 @@ body {
   max-height: 240px;
   border-radius: 8px;
   margin: 4px 0;
+}
+
+/* Apple emoji 内联图片（client/emoji.tsx）：随字号缩放、基线对齐，选中/拖拽体验同文本 */
+.emoji-img {
+  display: inline-block;
+  width: 1.25em;
+  height: 1.25em;
+  vertical-align: -0.25em;
+  user-select: none;
 }
 
 .md-body table {

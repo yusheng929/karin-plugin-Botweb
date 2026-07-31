@@ -37,8 +37,8 @@ importers:
         specifier: ^2.2.1
         version: 2.2.1
       '@karinjs/plugin-adapter-milky':
-        specifier: ^1.3.2
-        version: 1.3.2
+        specifier: ^1.3.3
+        version: 1.3.3
       '@types/express':
         specifier: 5.0.6
         version: 5.0.6
@@ -46,11 +46,8 @@ importers:
         specifier: 10.1.0
         version: 10.1.0
       node-karin:
-        specifier: 1.16.4
-        version: 1.16.4
-      sandbox-template:
-        specifier: workspace:*
-        version: link:../template
+        specifier: https://pkg.pr.new/node-karin@1484936
+        version: https://pkg.pr.new/node-karin@1484936
 
   packages/template:
     dependencies:
@@ -747,8 +744,8 @@ packages:
     resolution: {integrity: sha512-zkTx9gSPg4I0LwaDdLJLA2i1Wz3dn/0g236u07GvHHiVZXfG0CqTf2+rGtTYXE1LPdilcLkwuAPt9C9SIhcFIQ==}
     engines: {node: '>=18'}
 
-  '@karinjs/plugin-adapter-milky@1.3.2':
-    resolution: {integrity: sha512-Bhf0pj8IB0ew5HCP6z//d+mIWiMaf2Mv6RgNesjEP5IsPo++OFoRBzvo6Srpp9z7V4OthXHUknugbjCMHEQlsQ==}
+  '@karinjs/plugin-adapter-milky@1.3.3':
+    resolution: {integrity: sha512-njhoLG3KOoGvOdvoN8G9DAMDBhMdshoFWyw69BXzcssjRPYYh26t8D6N5inHRGgEufr8mSR5LD5XSJvRI5HBdg==}
 
   '@karinjs/redis@1.1.3':
     resolution: {integrity: sha512-Keo+1pJxvddTqBF4BE7AnZqvbBRXZ4QaZa8uJCKngmQ303TV3M0x0gHuKBfDNXQAkiHylw09a3YAzj68sh/Dhw==}
@@ -2301,8 +2298,8 @@ packages:
     resolution: {integrity: sha512-f7ccFPK3SXFHpx15UIGyRJ/FJQctuKZ0zVuN3frBo4HnK3cay9VEW0R6yPYFHC0AgqhukPzKjq22t5DmAyqGyw==}
     engines: {node: '>=16'}
 
-  flatted@3.4.3:
-    resolution: {integrity: sha512-/zipXxyO6rGvuNGDiULY9MvEGSkb2gaG4GGH4ygMi0ZZzyMHdUZBmntJmx5x1G2VuPytCwGN4xsJP6cw+sK+vQ==}
+  flatted@3.4.4:
+    resolution: {integrity: sha512-5+ybhBZANEJxaH3X5evAFatUxLfEHSr7n6kYJ+1Qd0mUqr4eu9gIf6GDbWHf8RJijHrjjO8G+la14SlL2SeS1Q==}
 
   for-each@0.3.5:
     resolution: {integrity: sha512-dKx12eRCVIzqCxFGplyFKJMPvLEWgmNtUrpTiJIR5u97zEhRG8ySrtboPHZXx7daLxQVrl643cTzbab2tkQjxg==}
@@ -3023,8 +3020,9 @@ packages:
     resolution: {integrity: sha512-kXs9Go0cah0qHVV2v389IXQLdLCeE1xfFtjOAF+iobu0OIoG1pje8At2vMHyaPMiPMnG/LWP50twML21eMcAag==}
     engines: {node: '>= 0.4'}
 
-  node-karin@1.16.4:
-    resolution: {integrity: sha512-8O0WGw/5ADdJ5HI5Dkia9CXyKyrfCMef9w/WtGNZyGH7N14rldzcxTqDai7syNtVkxgT+TDfMm0Dglib/o13ww==}
+  node-karin@https://pkg.pr.new/node-karin@1484936:
+    resolution: {tarball: https://pkg.pr.new/node-karin@1484936}
+    version: 1.16.5
     engines: {node: '>=18'}
     hasBin: true
 
@@ -4398,7 +4396,7 @@ snapshots:
 
   '@karinjs/node-schedule@1.1.2': {}
 
-  '@karinjs/plugin-adapter-milky@1.3.2':
+  '@karinjs/plugin-adapter-milky@1.3.3':
     dependencies:
       eventsource: 4.1.0
       ws: 8.21.1
@@ -5948,10 +5946,10 @@ snapshots:
 
   flat-cache@4.0.1:
     dependencies:
-      flatted: 3.4.3
+      flatted: 3.4.4
       keyv: 4.5.4
 
-  flatted@3.4.3: {}
+  flatted@3.4.4: {}
 
   for-each@0.3.5:
     dependencies:
@@ -6913,7 +6911,7 @@ snapshots:
       object.entries: 1.1.9
       semver: 6.3.1
 
-  node-karin@1.16.4:
+  node-karin@https://pkg.pr.new/node-karin@1484936:
     dependencies:
       art-template: '@karinjs/art-template@1.1.0'
       axios: '@karinjs/axios@1.13.2'

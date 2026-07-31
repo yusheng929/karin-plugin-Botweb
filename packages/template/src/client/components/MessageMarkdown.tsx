@@ -3,8 +3,10 @@ import ReactMarkdown, { defaultUrlTransform, type Components } from 'react-markd
 import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
 import { useMessageView } from './messageView'
-import { resolveMediaSrc, cn } from '../utils'
+import { cn } from '../utils'
 import { parseSpecialLink } from '../specialLink'
+import { MessageImage } from './MessageImage'
+import { AppleEmoji, rehypeAppleEmoji } from '../emoji'
 import type { ChatMessage } from '../../core/types'
 
 /** markdown 协议族（各平台语法不同，渲染前按族预处理） */
@@ -47,19 +49,15 @@ const preprocess = (content: string, family: MdFamily): string => {
   return preprocessQQ(escaped)
 }
 
-/** 链接新窗口打开；图片防盗链 + base64:// 归一（与消息图片一致） */
+/** 链接新窗口打开；图片复用 MessageImage（点击查看原图、右键复制/下载，与气泡图片一致）；
+ *  emoji-img 是 rehypeAppleEmoji 注入的 emoji 占位，渲染回 AppleEmoji（带文件名候选降级） */
 const mdComponents: Components = {
   a: ({ href, children }) => (
     <a href={href} target='_blank' rel='noreferrer'>{children}</a>
   ),
-  img: ({ src, alt }) => (
-    <img
-      src={resolveMediaSrc(String(src || ''))}
-      alt={alt || ''}
-      referrerPolicy='no-referrer'
-      className='md-img'
-    />
-  )
+  img: ({ src, alt, className }) => String(className || '').includes('emoji-img')
+    ? <AppleEmoji emoji={String(alt || '')} />
+    : <MessageImage file={String(src || '')} className='md-img' />
 }
 
 /** 特殊协议链接（mqqapi:// 等）放行原始 href 交给点击拦截，其余走默认消毒（防 javascript: 等） */
@@ -67,7 +65,8 @@ const mdUrlTransform = (url: string) => parseSpecialLink(url) ? url : defaultUrl
 
 /** 插件数组提升为常量（配合 memo：props 引用稳定时 ReactMarkdown 跳过重复解析） */
 const REMARK_PLUGINS = [remarkGfm]
-const REHYPE_PLUGINS = [rehypeRaw]
+// rehypeAppleEmoji 放在 rehype-raw 之后：原始 HTML 与 markdown 文本节点统一处理 emoji
+const REHYPE_PLUGINS = [rehypeRaw, rehypeAppleEmoji]
 
 /** memo 化的 ReactMarkdown：消息项因无关状态（头像到达/高亮等）重渲染时，同内容 markdown 不重复走解析管线 */
 const MemoReactMarkdown = React.memo(ReactMarkdown)

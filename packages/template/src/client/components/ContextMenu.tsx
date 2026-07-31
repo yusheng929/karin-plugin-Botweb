@@ -18,7 +18,7 @@ interface ContextMenuProps {
 /** 菜单与视口边缘的最小间距 */
 const VIEWPORT_MARGIN = 8
 
-/** 通用右键菜单：坐标定位（贴视口边缘时自动翻转/收拢），点击外部 / Esc / 滚动关闭 */
+/** 通用右键菜单：坐标定位（贴视口边缘时自动翻转/收拢），点击外部 / Esc / 用户滚动（滚轮/触摸）关闭 */
 export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, items, onClose }) => {
   const menuRef = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ left: x, top: y })
@@ -51,13 +51,17 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({ x, y, items, onClose }
     window.addEventListener('click', onClose)
     window.addEventListener('blur', onClose)
     window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('scroll', onClose, true)
+    // 用户主动滚动（滚轮/触摸）才关菜单；不用 scroll 事件——新消息自动滚底、
+    // 翻页加载的锚点调整都是程序滚动，会把菜单强制关掉
+    window.addEventListener('wheel', onClose, true)
+    window.addEventListener('touchmove', onClose, true)
     return () => {
       window.removeEventListener('mousedown', onMouseDown, true)
       window.removeEventListener('click', onClose)
       window.removeEventListener('blur', onClose)
       window.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('scroll', onClose, true)
+      window.removeEventListener('wheel', onClose, true)
+      window.removeEventListener('touchmove', onClose, true)
     }
   }, [onClose])
 

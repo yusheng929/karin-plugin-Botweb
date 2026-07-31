@@ -8,6 +8,7 @@ import {
 import { useChat, Conversation } from '../state/chat'
 import { useUi } from '../state/ui'
 import { getMessageSummary, toMillis, cn } from '../utils'
+import { EmojiText } from '../emoji'
 import { getSettings, saveSettings } from '../api'
 import type { BotWebSettings, ProfileCacheMode } from '../../core/types'
 import { Avatar } from './Avatar'
@@ -157,7 +158,7 @@ const ChatList: React.FC = () => {
                 <div className='flex items-center gap-2 mt-[3px]'>
                   <p className='text-xs truncate flex-1 text-qq-text-secondary'>
                     {conv.lastMsg?.recalled && <span className='opacity-70'>[已撤回] </span>}
-                    {getMessageSummary(conv.lastMsg?.elements)}
+                    <EmojiText text={getMessageSummary(conv.lastMsg?.elements)} />
                   </p>
                   {conv.unreadCount > 0 && (
                     <Chip className='shrink-0' color='danger' variant='primary' size='sm'>

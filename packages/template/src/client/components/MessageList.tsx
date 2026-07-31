@@ -2,11 +2,12 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 're
 import { ChevronDown } from 'lucide-react'
 import { useChat } from '../state/chat'
 import { useUi } from '../state/ui'
-import { toMillis } from '../utils'
+import { toMillis, cn } from '../utils'
 import { Button, Spinner } from '@heroui/react'
 import { MessageItem } from './MessageItem'
+import { Avatar } from './Avatar'
 import { MessageViewContextType, MessageViewProvider } from './messageView'
-import { ChatScene, GroupMemberItem } from '../../core/types'
+import { BotInfo, ChatMessage, ChatScene, GroupMemberItem } from '../../core/types'
 
 /** 距底部多少像素内视为「贴底」，贴底时内容增高会自动跟随 */
 const STICK_THRESHOLD = 80
@@ -24,6 +25,65 @@ const PAGE_SIZE = 100
 const LOAD_MORE_THRESHOLD = 120
 
 const isSameDay = (a: number, b: number) => new Date(a).toDateString() === new Date(b).toDateString()
+
+/** 头像地址：自己用当前 bot 头像；私聊对方用会话头像；群成员走后端 getAvatarUrl 缓存 */
+const groupAvatarUrl = (
+  isMe: boolean, scene: ChatScene | undefined, senderId: string,
+  currentBot: BotInfo | null, conversationAvatar: string | undefined,
+  getAvatar: (userId: string) => string | undefined
+) => isMe
+  ? (currentBot?.avatar || getAvatar(senderId))
+  : (scene === 'group' ? getAvatar(senderId) : (conversationAvatar || getAvatar(senderId)))
+
+/**
+ * 同一发送者的连续消息组（TG 式吸附头像）：
+ * 头像 mt-auto 自然位于组尾（最后一条消息处）；上翻历史、长组延伸到可视区下方时
+ * sticky bottom 把头像钉在可视区底部（输入框上方），直到组尾滚入视野回到自然位；
+ * 继续上翻时上一组（更早）头像下移接替（堆叠 sticky 的推挤效果）。
+ * top 约束处理对称情况（往回滚向新消息时头像从顶部自然离场）
+ */
+const MessageGroup: React.FC<{
+  msgs: ChatMessage[]
+  isMe: boolean
+  scene?: ChatScene
+  currentBot: BotInfo | null
+  conversationAvatar?: string
+  getAvatar: (userId: string) => string | undefined
+  flashMessageId: string | null
+  onAvatarMenu: (e: React.MouseEvent, msg: ChatMessage) => void
+}> = ({ msgs, isMe, scene, currentBot, conversationAvatar, getAvatar, flashMessageId, onAvatarMenu }) => {
+  const last = msgs[msgs.length - 1]
+  return (
+    <div className={cn('flex gap-2.5 -mx-2 px-2', isMe ? 'flex-row-reverse' : 'flex-row')}>
+      {/* 吸附头像列（整列撑满组高）：头像 mt-auto 自然在组尾，长组超出可视区下方时
+          sticky bottom 钉在底部（输入框上方），被上一组头像推挤替换 */}
+      <div className='w-9 shrink-0 flex flex-col'>
+        <span
+          onContextMenu={isMe ? undefined : (e) => onAvatarMenu(e, last)}
+          className={cn('sticky top-2 bottom-2 mt-auto z-10 block select-none', !isMe && 'cursor-pointer')}
+        >
+          <Avatar
+            url={groupAvatarUrl(isMe, scene, last.senderId, currentBot, conversationAvatar, getAvatar)}
+            name={isMe ? (currentBot?.name || '?') : last.senderName}
+            className='w-9 h-9 text-sm'
+          />
+        </span>
+      </div>
+      <div className='flex-1 min-w-0 flex flex-col'>
+        {msgs.map((m, i) => (
+          <MessageItem
+            key={m.messageId || i}
+            message={m}
+            isMe={isMe}
+            groupStart={i === 0}
+            groupEnd={i === msgs.length - 1}
+            flashing={flashMessageId === m.messageId}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
 
 const pad = (n: number) => String(n).padStart(2, '0')
 
@@ -201,6 +261,44 @@ export const MessageList: React.FC = () => {
     return Math.abs(tb - ta) <= GROUP_WINDOW && isSameDay(ta, tb)
   }
 
+  /** 头像右键菜单（群聊成员操作），msg 取组内最后一条（头像视觉归属） */
+  const openAvatarMenu = (e: React.MouseEvent, msg: ChatMessage) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setContextMenu({ x: e.clientX, y: e.clientY, kind: 'avatar', msg })
+  }
+
+  /**
+   * 渲染单元：时间胶囊 / 系统消息 / 发送者消息组。
+   * 分组规则与原 groupStart/groupEnd 判定一致：时间胶囊强制开新组，系统消息独立成元
+   */
+  type RenderUnit =
+    | { kind: 'time', key: string, time: number }
+    | { kind: 'system', key: string, msg: ChatMessage }
+    | { kind: 'group', key: string, msgs: ChatMessage[] }
+
+  const units: RenderUnit[] = []
+  visibleMessages.forEach((m, index) => {
+    const absIndex = startIndex + index
+    const prevMsg = messages[absIndex - 1]
+    // QQ NT：首条 / 跨天 / 间隔超 5 分钟时插入居中时间胶囊
+    const showTime = !prevMsg ||
+      !isSameDay(toMillis(prevMsg.time), toMillis(m.time)) ||
+      toMillis(m.time) - toMillis(prevMsg.time) >= TIME_DIVIDER_GAP
+    const key = m.messageId || `i${absIndex}`
+    if (showTime) units.push({ kind: 'time', key: `t-${key}`, time: m.time })
+    if (m.system) {
+      units.push({ kind: 'system', key, msg: m })
+      return
+    }
+    const lastUnit = units[units.length - 1]
+    if (!showTime && lastUnit?.kind === 'group' && sameGroup(lastUnit.msgs[lastUnit.msgs.length - 1], m)) {
+      lastUnit.msgs.push(m)
+    } else {
+      units.push({ kind: 'group', key, msgs: [m] })
+    }
+  })
+
   return (
     <MessageViewProvider value={viewContext}>
       <div className='flex-1 min-h-0 relative flex flex-col'>
@@ -223,35 +321,42 @@ export const MessageList: React.FC = () => {
                 </Button>
               </div>
             )}
-            {visibleMessages.map((m, index) => {
-              const absIndex = startIndex + index
-              const prevMsg = messages[absIndex - 1]
-              const nextMsg = messages[absIndex + 1]
-              // QQ NT：首条 / 跨天 / 间隔超 5 分钟时插入居中时间胶囊
-              const showTime = !prevMsg ||
-                !isSameDay(toMillis(prevMsg.time), toMillis(m.time)) ||
-                toMillis(m.time) - toMillis(prevMsg.time) >= TIME_DIVIDER_GAP
-              const isMe = !!currentBot && m.senderId === currentBot.selfId
-              const groupStart = showTime || !sameGroup(prevMsg, m)
-              const groupEnd = !sameGroup(m, nextMsg)
-
-              return (
-                <React.Fragment key={m.messageId || absIndex}>
-                  {showTime && (
-                    <div className='flex justify-center my-3 select-none'>
-                      <span className='time-pill'>
-                        {formatTimeDivider(m.time)}
-                      </span>
-                    </div>
-                  )}
+            {units.map((unit) => {
+              if (unit.kind === 'time') {
+                return (
+                  <div key={unit.key} className='flex justify-center my-3 select-none'>
+                    <span className='time-pill'>
+                      {formatTimeDivider(unit.time)}
+                    </span>
+                  </div>
+                )
+              }
+              if (unit.kind === 'system') {
+                return (
                   <MessageItem
-                    message={m}
-                    isMe={isMe}
-                    groupStart={groupStart}
-                    groupEnd={groupEnd}
-                    flashing={flashMessageId === m.messageId}
+                    key={unit.key}
+                    message={unit.msg}
+                    isMe={false}
+                    groupStart
+                    groupEnd
+                    flashing={false}
                   />
-                </React.Fragment>
+                )
+              }
+              const first = unit.msgs[0]
+              const isMe = !!currentBot && first.senderId === currentBot.selfId
+              return (
+                <MessageGroup
+                  key={unit.key}
+                  msgs={unit.msgs}
+                  isMe={isMe}
+                  scene={scene}
+                  currentBot={currentBot}
+                  conversationAvatar={conversationAvatar}
+                  getAvatar={resolveAvatar}
+                  flashMessageId={flashMessageId}
+                  onAvatarMenu={openAvatarMenu}
+                />
               )
             })}
           </div>

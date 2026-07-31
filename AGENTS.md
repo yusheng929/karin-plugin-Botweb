@@ -9,12 +9,12 @@
 - `packages/core` — Karin 插件本体（后端），包名 `karin-plugin-botweb`
 - `packages/template` — Web 前端（React 19 + Vite 6 + Tailwind v4 + **HeroUI v3**），包名 `sandbox-template`（历史遗留名）
 
-核心设计：**前端被打包成一个 `render()` 函数内联进后端**。template 构建出 JS/CSS 全部内联的单文件 HTML，core 通过 `import { render } from 'sandbox-template'` 引用，core 的 tsdown（`alwaysBundle: ['sandbox-template']`）把整个页面打包进 `lib/apps/web.js`。生产只需部署 core 的 `lib/`。
+核心设计：**前端由 vite 直接打包进后端的 `lib/webui/`**。template 构建产物（index.html + assets）输出到 `packages/core/lib/webui`（vite `outDir: '../core/lib/webui'`），core 用 `express.static` 托管在 `/botweb`（SPA 兜底回 index.html）。生产只需部署 core 的 `lib/`。**构建顺序必须 core 先、template 后**（tsdown `clean` 会清空 `lib/`，根目录 build 脚本已显式保证）。**core 产物必须保持 `.js` 扩展名**（karin 的 npm 插件加载器 `filesByExt` 只扫 `.js`，改成 `.mjs` 会导致生产环境插件加载不到，已踩坑论证过）。
 
 ## 请求链路
 
 ```
-浏览器 ──HTTP──> Karin app(:7777) ──GET /botweb──────> res.send(render('/botweb'))  (单文件 HTML，不鉴权)
+浏览器 ──HTTP──> Karin app(:7777) ──GET /botweb──────> express.static(lib/webui) + SPA 兜底 index.html  (不鉴权)
                                  ──/botweb/api/*─────> karin authMiddleware ──> core/src/api 路由  (REST，需鉴权)
 浏览器 ──WS upgrade──> Karin 内置 wss ──> karin.on('ws:connection:/botweb/ws')  (服务端只推不收，query 鉴权)
 Bot 事件 ──> hooks.message / karin.accept('notice.*') ──> 广播 WS ──> 前端按 selfId 分 bot 入库（消息不落库）
@@ -29,35 +29,35 @@ packages/
 ├── core/                          # Karin 插件（后端）
 │   ├── src/
 │   │   ├── index.ts / app.ts / dir.ts / types.ts
-│   │   ├── apps/web.ts            # ★ 面板挂载点：页面路由 + API 挂载 + WS 接管 + 事件广播
+│   │   ├── apps/web.ts            # ★ 面板挂载点：静态托管 lib/webui + API 挂载 + WS 接管 + 事件广播
 │   │   ├── api/                   # express 路由：bot.ts / message.ts / settings.ts
 │   │   └── service/               # 业务层：bot / message / dto(★前后端契约映射) / auth / cache / db / settings / profile
+│   ├── lib/webui/                 # ★ vite 构建产物（template 直接输出到这里，随 core 发布）
 │   ├── resources/faces/           # QQ 小黄脸本地图源（镜像 koishijs/QFace 仓库，/botweb/faces/* 托管；gif/ 目录上游混放少量 .png 静态散件，manifest 按扩展名过滤生成）
 │   └── development.env            # dev 环境变量（HTTP_PORT=7777，HTTP_AUTH_KEY=abc123）
-└── template/                      # 前端
-    ├── src/
-    │   ├── index.ts               # 包入口：导出 render(basePath)，供 core 引用
-    │   ├── generated/html.ts      # 构建生成：内联 HTML 字符串（勿手改）
-    │   ├── core/types.ts          # ★ 前后端共享 DTO 契约（与 core/src/service/dto.ts 同步）
-    │   ├── main.tsx               # 入口：登录门控 + HeroUI Toast.Provider
-    │   └── client/
-    │       ├── auth.ts / sha256.ts / api.ts / utils.ts / faceCache.ts / specialLink.ts
-    │       ├── state/             # UiProvider（主题/toast/对话框/右键菜单等 UI 态）+ ChatProvider（数据层）
-    │       └── components/        # NavRail/Sidebar/ChatWindow/GroupPanel/MessageList/MessageItem/
-    │                              # InputArea/LoginScreen/ContextMenu/Overlays/EmojiPicker/ReactionPicker/Avatar
-    └── scripts/inline.mjs         # vite 产物 → 单文件 HTML → src/generated/html.ts
+└── template/                      # 前端（纯构建包，不再是库，无 dist 导出）
+    ├── index.html                 # vite 入口：注入 window.BOTWEB_BASE + 字体 CDN link
+    ├── vite.config.ts             # build 时 base='/botweb/'、outDir='../core/lib/webui'；dev 时 base='/'（避开 /botweb 代理）
+    └── src/
+        ├── core/types.ts          # ★ 前后端共享 DTO 契约（与 core/src/service/dto.ts 同步）
+        ├── main.tsx               # 入口：登录门控 + HeroUI Toast.Provider
+        └── client/
+            ├── auth.ts / sha256.ts / api.ts / utils.ts / faceCache.ts / specialLink.ts / emoji.tsx
+            ├── state/             # UiProvider（主题/toast/对话框/右键菜单等 UI 态）+ ChatProvider（数据层）
+            └── components/        # NavRail/Sidebar/ChatWindow/GroupPanel/MessageList/MessageItem/MessageImage/
+                                   # InputArea/LoginScreen/ContextMenu/Overlays/EmojiPicker/ReactionPicker/Avatar
 ```
 
 ## 常用命令（仓库根目录）
 
 ```bash
-pnpm -r build          # 全量构建（拓扑序：先 template 后 core）
-pnpm dev               # Karin 开发服务器（:7777，tsx 运行 packages/core/src）
-pnpm dev:web           # vite 开发服务器（:5173，/botweb 与 /api/v1 代理到 7777，含 WS）
-pnpm exec tsc --noEmit -p packages/core      # core 类型检查（需 template 先 build 出 dist）
+pnpm build             # 全量构建（显式顺序：先 core 后 template——tsdown clean 清 lib/，template 产物进 lib/webui）
+pnpm dev               # Karin 开发服务器（:7777，tsx 运行 packages/core/src；页面访问需 template 已 build 出 lib/webui）
+pnpm dev:web           # vite 开发服务器（:5173，页面在 / 下由 vite 直供，/botweb 与 /api/v1 代理到 7777，含 WS）
+pnpm exec tsc --noEmit -p packages/core      # core 类型检查（与 template 无依赖，互不阻塞）
 ```
 
-开发流程：先 `pnpm -F sandbox-template build` 一次（core 的类型/运行都依赖 template 的 `dist/`），然后终端 1 跑 `pnpm dev`、终端 2 跑 `pnpm dev:web`。生产访问 `http://127.0.0.1:7777/botweb`。
+开发流程：先 `pnpm build` 一次（7777 的页面托管直接读 `lib/webui`），然后终端 1 跑 `pnpm dev`、终端 2 跑 `pnpm dev:web`（前端改动用 5173 热更新调试，7777 页面仍是构建产物）。生产访问 `http://127.0.0.1:7777/botweb`。
 
 ## REST API（前缀 `/botweb/api`，响应均为 `ApiResult<T> = { code, message, data }`）
 
@@ -98,7 +98,7 @@ pnpm exec tsc --noEmit -p packages/core      # core 类型检查（需 template 
 - **`@karinjs/sqlite3` 是 core 唯一运行时依赖**（native .node 不能进 bundle，tsdown `neverBundle` 已加）；其余依赖走 devDependencies + 全部打包进 `lib/`。
 - **前端禁止直拼 qlogo 头像地址**：用户头像统一走后端 `getAvatarUrl`（profiles 推送 + `/avatars` 补拉 + `avatarMap`），渲染统一用 `components/Avatar.tsx` 兜底字母占位。
 - **UI 组件一律用 HeroUI v3**（`@heroui/react` + `@heroui/styles`，已在 `index.css` 的 `@import "tailwindcss"` 之后引入；v3 无 Provider（Toast 除外）、用复合组件、`onPress` 代替 `onClick`）。**坑①：React Aria 的 Button 不会触发表单原生提交**，登录按钮用 `onPress` 直接调 submit（回车走 form onSubmit 正常）。**坑②：`Badge` 默认 `placement='top-right'` 是绝对定位**，角标必须配 `Badge.Anchor` 使用（NavRail 导航图标）；**行内未读数用 `Chip color='danger' variant='primary' size='sm'`**（Sidebar 会话行/账号切换），不能裸用 Badge。toast 走 `ui.tsx` 的 `setToast`（内部调 HeroUI `toast()`，success/error/info 映射 success/danger/accent）；确认/告警对话框用受控 `Modal.Backdrop`（Overlays.tsx）；菜单弹层用 `Dropdown`（NavRail 汉堡菜单的主题单选走 `Dropdown.Section selectionMode='single'`，Sidebar 账号切换走 `Dropdown.Menu onAction`）；设置单选用 `RadioGroup`；`components/Avatar.tsx` 内部即 HeroUI `Avatar`（url 传 `Avatar.Image`，字母占位传 `Avatar.Fallback`，加载失败自动回退）。保留自绘的仅限 HeroUI 无对应的桌面形态：右键菜单、InputArea 工具条/发送按钮、消息气泡、EmojiPicker/ReactionPicker。项目装有 heroui-react skill，查组件用法先读它。
-- 页面配色集中在 `index.css` 的 `qq-*` CSS 变量（`:root` 亮色 / `.dark` 深色），经 `@theme inline` 映射为 tailwind 工具类；暗色由 `state/ui.tsx` 给根元素挂 `.dark` class 驱动（**禁止用 `dark:` 变体**）。**颜色一律走 qq 变量，禁止写死 hex**（Avatar 占位色板除外）；红色系统一 `bg-qq-badge`/`text-qq-badge`。`--qq-active` 是选中会话行的灰色，不是蓝色。全局字体是华为 HarmonyOS Sans SC（`index.html` 引入 jsdelivr `harmonyos-sans-sc-webfont-splitted` 四档字重，unicode-range 按需加载，离线自动回退系统中文字体）；**emoji 统一用 Twemoji**（`twemoji-colr-font` webfont，全平台同一样式，不回退系统 emoji/Noto，系统原生 emoji 兜底）；`inline.mjs` 对 http 外链原样保留、勿改回内联逻辑。
+- 页面配色集中在 `index.css` 的 `qq-*` CSS 变量（`:root` 亮色 / `.dark` 深色），经 `@theme inline` 映射为 tailwind 工具类；暗色由 `state/ui.tsx` 给根元素挂 `.dark` class 驱动（**禁止用 `dark:` 变体**）。**颜色一律走 qq 变量，禁止写死 hex**（Avatar 占位色板除外）；红色系统一 `bg-qq-badge`/`text-qq-badge`。`--qq-active` 是选中会话行的灰色，不是蓝色。全局字体是华为 HarmonyOS Sans SC（`index.html` 引入 jsdelivr `harmonyos-sans-sc-webfont-splitted` 四档字重，unicode-range 按需加载，离线自动回退系统中文字体）；**emoji 用 Apple 图片方案**（`client/emoji.tsx`：文本/markdown 里的 emoji 字符替换为 `emoji-datasource-apple` 64px PNG——Apple 字体有再分发限制、无官方 webfont，图片是 Web 端唯一可行方案；文件名按 fully-qualified 码位序列规则生成 + 候选降级链，加载失败回退原字符系统字体；markdown 里走 `rehypeAppleEmoji` 插件）。
 - 发送侧媒体（image/file/video/record）的 `data:` URL 由协议端自行处理：milky 已在适配器侧（`karin-plugin-adapter-milky` 的 `event/convert.ts` `normalizeUri`）统一转 `base64://`，插件不做 scheme 归一化。**注意 npm 1.3.x 尚未包含适配器侧的修复**（data: 支持、getHistoryMsg 循环拉取/seq0 映射、getGroupList 群头像、markdown 段映射——milky 服务端已下发 `{type:'markdown',data:{content}}` 但 milky-types@1.2.2 未定义，`AdapterConvertKarin` 进 switch 前手动映射为 `segment.markdown()`），需发布新版后 bump devDependency；本地联调可临时用 `file:../../../karin-plugin-adapter-milky` 指源码（peer 去重无双实例问题，adapter 改动后需其仓库 `pnpm build` + 本仓库 `pnpm install` 同步——file: 是安装期拷贝，只 rebuild 不同步）。
 - **node-karin 的 OneBot `getHistoryMsg` 曾把每条历史消息的 `time` 打成 `Date.now()`**（请求时刻）：假时间戳与本地真实时间混排会把最新消息排到列表最前（窗口化渲染下直接看不见）。已在本地 Karin 仓库修复为 `time: v.time`，并把 seq 数字路径补上好友场景（原来一律调群接口，好友历史失效）（≥1.16.5，npm 1.16.4 仍有问题）；core 的 node-karin devDependency 现以 `file:../../../../Karin/packages/core` 指本地构建（Karin 改动后需其仓库 `pnpm build:main` + 本仓库 `pnpm install`——file: 是安装期拷贝，只 rebuild 不同步），发布新版后可改回版本号。本地 Karin 另带有 OneBot 扩展 markdown 段（NapCat `{type:'markdown',data:{content}}`，非 ob11 标准）的入站转换修复（`adapter/onebot/core/convert.ts` 的 `convertOneBotMessageToKarin` handlers 加 `markdown` 映射，此前被兜底 `JSON.stringify` 成文本），同样未发布。另外插件 `/history` 分页切片是**先按时间排序再保留最新 limit 条**（slice(-limit)），升序协议端（milky）不会再丢首页最新一条。
 - express v5 通配符写法是 `/botweb/*splat`；API 路由必须注册在 SPA 兜底之前。`express.json({ limit: '50mb' })` 不能删（base64 图片随 JSON 发送）。
@@ -106,8 +106,8 @@ pnpm exec tsc --noEmit -p packages/core      # core 类型检查（需 template 
 - QQ 图床防盗链：所有 `<img>` 必须带 `referrerPolicy="no-referrer"`；`base64://` 前缀转 data URL（`resolveMediaSrc`）。复制文本统一走 `copyTextToClipboard`（http 下 Clipboard API 不可用，有降级）。
 - QQ 小黄脸图源已本地化（`core/resources/faces/`，镜像 koishijs/QFace 仓库，`/botweb/faces/*` 托管、不鉴权、长缓存）：**`res.sendFile` 必须带 `{ dotfiles: 'allow' }`**（pnpm 部署路径含 `.pnpm` 段，否则生产 404）。前端表情走 IndexedDB 缓存（`faceCache.ts` 的 `useCachedSrc()`，禁止直接用远程 url）。注意上游 gif/ 目录混放 8 个 .png 静态散件（s306/307/333-336/347/348，无动图的表情），`manifest.json` 的 gif/static 列表按扩展名过滤生成；s161-166、461、478 等上游本就没有的 id 走降级链（动图→静态图→文本）。
 - **输入框是 contenteditable 富文本**（`.rich-input`，非受控）：QQ 表情（`<img data-face-id>`）与待发送图片内联混排，发送时 `parseEditor()` 按 DOM 顺序解析元素序列；文件选择器 `onChange` 必须先 `Array.from` 拷贝再清空 `input.value`。
-- **消息列表性能**：`MessageList` 窗口化渲染（首屏尾部 100 条，滚动/按钮按页扩窗，scrollHeight 锚点防跳动）；`MessageItem` 为 `React.memo`，数据**不直接订阅 useChat/useUi**，走 `components/messageView.ts` 的 `MessageViewContext`。
-- tsdown 的 core 构建要求 template 已构建（`dist/index.js` + `index.d.ts` 存在）。ESLint 目前跑不起来（缺 `globals` 包），为既有问题。
+- **消息列表性能**：`MessageList` 窗口化渲染（首屏尾部 100 条，滚动/按钮按页扩窗，scrollHeight 锚点防跳动）；`MessageItem` 为 `React.memo`，数据**不直接订阅 useChat/useUi**，走 `components/messageView.ts` 的 `MessageViewContext`。**消息按发送者分组渲染（`MessageList` 的 `MessageGroup`）**：列表先归并成渲染单元（时间胶囊/系统消息/消息组），分组规则同原 groupStart/groupEnd 判定（时间胶囊强制开组）；头像在组容器侧列里 `sticky top-2 bottom-2 mt-auto`（TG 式吸附——自然停在组尾最后一条处，上翻历史、长组延伸到可视区下方时钉在可视区底部即输入框上方，继续上翻被上一组头像下移替换；top 约束处理回滚向新消息时的对称离场），`MessageItem` 自身不再渲染头像列（头像右键菜单经 `onAvatarMenu` 上抛）。
+- core 与 template 构建已无依赖（core 不再 import 前端包），但**全量构建必须 core 先、template 后**（tsdown `clean: true` 清空 `lib/`，根目录 `pnpm build` 脚本已写死顺序）；`express.static` 与 SPA 兜底都带 `dotfiles:'allow'`（同 faces 的 .pnpm 坑）。ESLint 目前跑不起来（缺 `globals` 包），为既有问题。
 
 ## 代码风格
 

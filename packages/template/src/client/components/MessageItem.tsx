@@ -2,11 +2,12 @@ import React, { useEffect, useRef, useState } from 'react'
 import { AlertCircle, FileIcon, Download, Play, Pause } from 'lucide-react'
 import { ChatMessage, ButtonItem, MessageElement, ReactionItem } from '../../core/types'
 import { useMessageView } from './messageView'
-import { getMessageSummary, toMillis, formatSize, resolveMediaSrc, downloadFile, qqFaceGif, qqFacePng, isQQProtocol, cn, visibleElements } from '../utils'
+import { getMessageSummary, toMillis, formatSize, downloadFile, qqFaceGif, qqFacePng, isQQProtocol, cn, visibleElements } from '../utils'
 import { useCachedSrc } from '../faceCache'
 import { Spinner } from '@heroui/react'
-import { Avatar } from './Avatar'
 import { MessageMarkdown } from './MessageMarkdown'
+import { MessageImage } from './MessageImage'
+import { EmojiText } from '../emoji'
 
 /** QQ 表情（face 元素）：本地动图 → 本地静态图 → 占位文本 三级降级（src 走前端 IndexedDB 缓存） */
 const MessageFace: React.FC<{ id: number, className?: string }> = ({ id, className }) => {
@@ -58,68 +59,6 @@ const MessageReactions: React.FC<{ reactions: ReactionItem[], myFaceIds?: Readon
     })}
   </div>
 )
-
-/** 消息图片：防盗链 no-referrer、限宽限高、加载失败占位、点击遮罩看原图（支持右键菜单与下载按钮） */
-const MessageImage: React.FC<{ file: string, isPureMedia: boolean }> = ({ file, isPureMedia }) => {
-  const { setContextMenu } = useMessageView()
-  const [error, setError] = useState(false)
-  const [zoom, setZoom] = useState(false)
-  const src = resolveMediaSrc(file)
-
-  if (error) {
-    return (
-      <div className='max-w-[260px] px-4 py-6 rounded-xl bg-qq-hover text-xs opacity-50 text-center select-none'>
-        [图片加载失败]
-      </div>
-    )
-  }
-
-  return (
-    <>
-      <img
-        src={src}
-        alt=''
-        referrerPolicy='no-referrer'
-        onError={() => setError(true)}
-        onClick={() => setZoom(true)}
-        className={cn(
-          'max-w-[320px] max-h-[320px] object-contain cursor-zoom-in',
-          isPureMedia ? 'block' : 'rounded-lg my-1'
-        )}
-      />
-      {zoom && (
-        <div
-          className='fixed inset-0 z-[300] bg-black/70 flex items-center justify-center cursor-zoom-out animate-in fade-in duration-200'
-          onClick={() => setZoom(false)}
-          onContextMenu={(e) => e.preventDefault()}
-        >
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              downloadFile(src, `image-${Date.now()}.png`)
-            }}
-            className='absolute top-6 right-6 p-3 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors'
-            title='下载图片'
-          >
-            <Download className='w-5 h-5' />
-          </button>
-          <img
-            src={src}
-            alt=''
-            referrerPolicy='no-referrer'
-            onClick={(e) => e.stopPropagation()}
-            onContextMenu={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              setContextMenu({ x: e.clientX, y: e.clientY, kind: 'image', file })
-            }}
-            className='max-w-[90vw] max-h-[90vh] object-contain rounded-xl shadow-2xl cursor-default'
-          />
-        </div>
-      )}
-    </>
-  )
-}
 
 /** 气泡悬停提示的完整时间 */
 const formatFullTime = (time: number) => {
@@ -285,14 +224,14 @@ interface MessageItemProps {
 }
 
 /**
- * QQ NT 式消息行：
- * 双侧头像（组首显示、顶部对齐），群聊他人昵称在气泡外上方（灰色小字），
- * 时间不入气泡（悬停 tooltip + 列表居中时间戳），发送状态图标位于气泡侧边。
+ * QQ NT 式消息行（内容列，不含头像——头像由 MessageList 的 MessageGroup 统一渲染为 TG 式吸附头像）：
+ * 群聊他人昵称在气泡外上方（灰色小字），时间不入气泡（悬停 tooltip + 列表居中时间戳），
+ * 发送状态图标位于气泡侧边。
  * React.memo + MessageViewContext 供数：新消息到达/toast/右键菜单等无关状态变化不会触发重渲染
  */
 const MessageItemInner: React.FC<MessageItemProps> = ({ message, isMe, groupStart, groupEnd, flashing }) => {
   const {
-    currentBot, conversationAvatar, getMember, getAvatar, getMessage,
+    currentBot, getMember, getMessage,
     resendMessage, reactMessage, hasReacted,
     setConfirmDialog, setContextMenu, setToast, flashMessage
   } = useMessageView()
@@ -306,7 +245,7 @@ const MessageItemInner: React.FC<MessageItemProps> = ({ message, isMe, groupStar
           data-message-id={message.messageId}
           className='text-xs text-qq-text-tertiary select-none'
         >
-          {message.elements.map(e => (e.type === 'text' ? e.text : '')).join('')}
+          <EmojiText text={message.elements.map(e => (e.type === 'text' ? e.text : '')).join('')} />
         </span>
       </div>
     )
@@ -372,7 +311,7 @@ const MessageItemInner: React.FC<MessageItemProps> = ({ message, isMe, groupStar
       >
         <span className={cn('font-medium', isMe ? 'text-qq-bubble-me-text' : 'text-qq-blue')}>{target ? target.senderName : '引用消息'}</span>
         <br />
-        <span className='opacity-70'>{target ? getMessageSummary(target.elements) : '[原消息未加载]'}</span>
+        <span className='opacity-70'>{target ? <EmojiText text={getMessageSummary(target.elements)} /> : '[原消息未加载]'}</span>
       </div>
     )
   }
@@ -381,7 +320,7 @@ const MessageItemInner: React.FC<MessageItemProps> = ({ message, isMe, groupStar
     return parts.map((part, idx) => {
       switch (part.type) {
         case 'text':
-          return <span key={idx}>{part.text}</span>
+          return <span key={idx}><EmojiText text={part.text} /></span>
         case 'image':
           return <MessageImage key={idx} file={part.file} isPureMedia={isPureMedia} />
         case 'video':
@@ -446,16 +385,11 @@ const MessageItemInner: React.FC<MessageItemProps> = ({ message, isMe, groupStar
     })
   }
 
-  const openMenu = (e: React.MouseEvent, kind: 'avatar' | 'message') => {
+  const openMenu = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    setContextMenu({ x: e.clientX, y: e.clientY, kind, msg: message })
+    setContextMenu({ x: e.clientX, y: e.clientY, kind: 'message', msg: message })
   }
-
-  /** 头像地址：自己用当前 bot 头像；私聊对方用会话头像；群成员走后端 getAvatarUrl 缓存 */
-  const avatarUrl = isMe
-    ? (currentBot?.avatar || getAvatar(message.senderId))
-    : (!isGroup ? (conversationAvatar || getAvatar(message.senderId)) : getAvatar(message.senderId))
 
   /** 气泡侧边的发送状态（QQ 风：失败红色感叹号点击重发，发送中转圈） */
   const statusIcon = isMe && message.status === 'sending'
@@ -484,73 +418,60 @@ const MessageItemInner: React.FC<MessageItemProps> = ({ message, isMe, groupStar
     <div
       data-message-id={message.messageId}
       className={cn(
-        'flex items-start gap-2.5 -mx-2 px-2 rounded-lg hover:bg-qq-hover transition-colors',
-        isMe ? 'flex-row-reverse' : 'flex-row',
+        // self-end/start：align-stretch 被 max-w 截断后默认贴左，isMe 气泡必须显式贴右（否则会浮在中间）
+        'flex flex-col max-w-[62%] xl:max-w-[560px] min-w-0 rounded-lg transition-colors',
+        isMe ? 'self-end items-end' : 'self-start items-start',
         groupEnd ? 'mb-3' : 'mb-1',
         flashing && 'highlight-msg'
       )}
     >
-      {/* 头像列（QQ NT：双侧均显示，组首出现、顶部对齐；其余占位保持缩进） */}
-      <div className='w-9 shrink-0'>
-        {groupStart && (
-          <span
-            onContextMenu={isMe ? undefined : (e) => openMenu(e, 'avatar')}
-            className={cn('block select-none', !isMe && 'cursor-pointer')}
-          >
-            <Avatar url={avatarUrl} name={isMe ? (currentBot?.name || '?') : message.senderName} className='w-9 h-9 text-sm' />
+      {/* 群聊他人：昵称 + 头衔/身份徽章在气泡外上方（灰色小字，QQ NT 式） */}
+      {isGroup && !isMe && groupStart && (
+        <div className='flex items-center gap-1.5 mb-1 px-0.5 max-w-full'>
+          <span className='text-xs text-qq-text-secondary truncate'>
+            {senderDisplayName}
           </span>
-        )}
-      </div>
-
-      <div className={cn('flex flex-col max-w-[62%] xl:max-w-[560px] min-w-0', isMe ? 'items-end' : 'items-start')}>
-        {/* 群聊他人：昵称 + 头衔/身份徽章在气泡外上方（灰色小字，QQ NT 式） */}
-        {isGroup && !isMe && groupStart && (
-          <div className='flex items-center gap-1.5 mb-1 px-0.5 max-w-full'>
-            <span className='text-xs text-qq-text-secondary truncate'>
-              {senderDisplayName}
-            </span>
-            {badge}
-          </div>
-        )}
-
-        <div className={cn('flex items-end gap-1.5 max-w-full', isMe && 'flex-row-reverse')}>
-          <div
-            title={formatFullTime(message.time)}
-            onContextMenu={(e) => openMenu(e, 'message')}
-            className={cn(
-              'bubble min-w-0 max-w-full text-[14px] leading-[1.6] break-words',
-              message.recalled && 'opacity-60 border border-qq-badge/60',
-              isPureMedia || isCardOnly
-                ? 'overflow-hidden rounded-xl'
-                : cn(
-                  'px-3 py-[7px]',
-                  isMe
-                    ? 'bg-qq-bubble-me text-qq-bubble-me-text'
-                    : 'bg-qq-bubble-them text-qq-bubble-them-text'
-                )
-            )}
-          >
-            {renderMessageContent()}
-          </div>
-          {statusIcon}
+          {badge}
         </div>
+      )}
 
-        {/* 已撤回标记：气泡下方红色小字（对齐方向跟随 isMe，由父容器 items-end/start 控制） */}
-        {message.recalled && (
-          <span className='mt-1 text-[11px] text-qq-badge select-none'>消息已撤回</span>
-        )}
-
-        {/* 表情回应条：气泡下方小胶囊（QFace + 次数）；QQ 协议下点击胶囊贴/取消贴（自己贴过的蓝色高亮） */}
-        {message.reactions && message.reactions.length > 0 && (
-          <MessageReactions
-            reactions={message.reactions}
-            myFaceIds={new Set(message.reactions.map(r => r.faceId).filter(id => hasReacted(message, id)))}
-            onReact={isQQProtocol(currentBot) && !message.system
-              ? (faceId) => void reactMessage(message, faceId)
-              : undefined}
-          />
-        )}
+      <div className={cn('flex items-end gap-1.5 max-w-full', isMe && 'flex-row-reverse')}>
+        <div
+          title={formatFullTime(message.time)}
+          onContextMenu={openMenu}
+          className={cn(
+            'bubble min-w-0 max-w-full text-[14px] leading-[1.6] break-words',
+            message.recalled && 'opacity-60 border border-qq-badge/60',
+            isPureMedia || isCardOnly
+              ? 'overflow-hidden rounded-xl'
+              : cn(
+                'px-3 py-[7px]',
+                isMe
+                  ? 'bg-qq-bubble-me text-qq-bubble-me-text'
+                  : 'bg-qq-bubble-them text-qq-bubble-them-text'
+              )
+          )}
+        >
+          {renderMessageContent()}
+        </div>
+        {statusIcon}
       </div>
+
+      {/* 已撤回标记：气泡下方红色小字（对齐方向跟随 isMe，由父容器 items-end/start 控制） */}
+      {message.recalled && (
+        <span className='mt-1 text-[11px] text-qq-badge select-none'>消息已撤回</span>
+      )}
+
+      {/* 表情回应条：气泡下方小胶囊（QFace + 次数）；QQ 协议下点击胶囊贴/取消贴（自己贴过的蓝色高亮） */}
+      {message.reactions && message.reactions.length > 0 && (
+        <MessageReactions
+          reactions={message.reactions}
+          myFaceIds={new Set(message.reactions.map(r => r.faceId).filter(id => hasReacted(message, id)))}
+          onReact={isQQProtocol(currentBot) && !message.system
+            ? (faceId) => void reactMessage(message, faceId)
+            : undefined}
+        />
+      )}
     </div>
   )
 }

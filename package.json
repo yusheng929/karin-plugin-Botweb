@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "pnpm --filter karin-plugin-botweb dev",
     "app": "pnpm --filter karin-plugin-botweb app",
-    "build": "pnpm -r run build",
+    "build": "pnpm -F karin-plugin-botweb build && pnpm -F sandbox-template build",
     "build:web": "pnpm -F sandbox-template build",
     "dev:web": "pnpm -F sandbox-template dev"
   },

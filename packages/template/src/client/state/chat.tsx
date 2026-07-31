@@ -294,7 +294,11 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     api.getBots()
       .then(list => {
         setBots(list)
-        if (list.length > 0) setCurrentBotId(list[0].selfId)
+        if (list.length > 0) {
+          // URL ?botId= 优先（刷新/分享链接保持选中），否则默认第一个
+          const fromUrl = new URLSearchParams(location.search).get('botId')
+          setCurrentBotId(list.find(b => b.selfId === fromUrl)?.selfId || list[0].selfId)
+        }
         // 恢复所有 bot 的未读缓存（消息本身走后端持久化/协议端历史，见下方历史分页拉取）
         const unreadEntries: UnreadState = {}
         for (const bot of list) {
@@ -313,6 +317,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const selectBot = useCallback((selfId: string) => {
     setCurrentBotId(selfId)
   }, [])
+
+  // 当前 bot 同步到 URL ?botId=（replaceState 不刷历史记录），刷新后仍停在该 bot 界面
+  useEffect(() => {
+    if (!currentBotId) return
+    const url = new URL(location.href)
+    if (url.searchParams.get('botId') === currentBotId) return
+    url.searchParams.set('botId', currentBotId)
+    history.replaceState(null, '', url)
+  }, [currentBotId])
 
   // 切换 bot：重置会话相关状态，重新拉取好友/群列表（消息全 bot 常驻内存，无需切换）
   useEffect(() => {

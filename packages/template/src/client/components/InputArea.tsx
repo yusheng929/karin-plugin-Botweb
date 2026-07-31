@@ -10,6 +10,7 @@ import { useChat } from '../state/chat'
 import { useUi } from '../state/ui'
 import { MessageElement } from '../../core/types'
 import { getMessageSummary, isQQProtocol, qqFaceGif, qqFacePng, cn } from '../utils'
+import { EmojiText } from '../emoji'
 import { getCachedFaceSrc } from '../faceCache'
 import { EmojiPicker } from './EmojiPicker'
 import { Avatar } from './Avatar'
@@ -449,7 +450,7 @@ export const InputArea: React.FC = () => {
         <div className='mx-3 mt-2 flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-qq-hover text-xs'>
           <span className='flex-1 min-w-0 truncate border-l-2 border-qq-blue pl-2'>
             <span className='text-qq-text font-medium'>{replyTo.senderName}</span>
-            <span className='text-qq-text-secondary'> {getMessageSummary(replyTo.elements)}</span>
+            <span className='text-qq-text-secondary'> <EmojiText text={getMessageSummary(replyTo.elements)} /></span>
           </span>
           <button
             onClick={() => setReplyTo(null)}

@@ -1,15 +1,15 @@
 /**
  * BotWeb 面板入口（Karin 会自动加载本文件）
- * - 页面托管：GET /botweb（HTML 由 sandbox-template 的 render() 内联提供）
+ * - 页面托管：GET /botweb（vite 构建产物 lib/webui 静态托管，SPA 兜底回 index.html）
  * - REST 接口：/botweb/api/*
  * - 实时推送：复用 Karin 内置 WebSocket 服务，接管路径 /botweb/ws
  */
 import karin, { app, authMiddleware, hooks, logger } from 'node-karin'
 import { WebSocket } from 'node-karin/ws'
 import type { Request, Response } from 'node-karin/express'
+import express from 'node-karin/express'
 import path from 'node:path'
 import fs from 'node:fs'
-import { render } from 'sandbox-template'
 import apiRouter from '@/api'
 import { toChatMessage, verifyWsToken, ProfileService } from '@/service'
 import { dir } from '@/dir'
@@ -78,12 +78,27 @@ app.get(`${BASE}/faces/:type/:name`, (req: Request, res: Response) => {
 })
 
 // -------------------- 页面托管 --------------------
-const pageHandler = (_req: Request, res: Response) => {
-  res.type('html').send(render(BASE))
-}
-app.get(BASE, pageHandler)
-// SPA 兜底（express v5 通配符写法）
-app.get(`${BASE}/*splat`, pageHandler)
+// vite 构建产物（packages/template 直接产出到 core/lib/webui，构建顺序 core 先 template 后）。
+// express.static 同样必须 dotfiles:'allow'（pnpm 部署真实路径含 .pnpm 段，同 faces 的坑）
+const WEBUI_DIR = path.join(dir.pluginDir, 'lib', 'webui')
+const INDEX_HTML = path.join(WEBUI_DIR, 'index.html')
+
+app.use(BASE, express.static(WEBUI_DIR, {
+  dotfiles: 'allow',
+  index: 'index.html',
+  setHeaders: (res, filePath) => {
+    // assets/ 下带内容 hash 长缓存；index.html 等不缓存，保证发版即时生效
+    res.setHeader('Cache-Control', filePath.includes(`${path.sep}assets${path.sep}`)
+      ? 'public, max-age=604800, immutable'
+      : 'no-cache')
+  }
+}))
+
+// SPA 兜底（express v5 通配符写法）：前端路由/刷新都回 index.html
+app.get(`${BASE}/*splat`, (_req: Request, res: Response) => {
+  res.setHeader('Cache-Control', 'no-cache')
+  res.sendFile(INDEX_HTML, { dotfiles: 'allow' })
+})
 
 // -------------------- WebSocket（复用 karin 内置 wss，按路径接管） --------------------
 // karin 握手不鉴权，浏览器 WS 只能走 query 传凭据（?token=&user_id=），由插件自行校验
