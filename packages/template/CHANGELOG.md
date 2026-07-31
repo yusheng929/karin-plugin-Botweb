@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.14](https://github.com/yusheng929/karin-plugin-botweb/compare/template-v1.0.13...template-v1.0.14) (2026-07-31)
+
+
+### 🐛 错误修复
+
+* **template:** 优化前端逻辑和编译方式 ([49bc813](https://github.com/yusheng929/karin-plugin-botweb/commit/49bc81367cfdde530987eaeb32373e39d43116a9))
+
 ## [1.0.13](https://github.com/yusheng929/karin-plugin-botweb/compare/template-v1.0.12...template-v1.0.13) (2026-07-30)
 
 
